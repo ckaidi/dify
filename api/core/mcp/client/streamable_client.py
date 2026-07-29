@@ -14,6 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import timedelta
+from http import HTTPStatus
 from typing import Any, cast
 
 import httpx
@@ -293,37 +294,46 @@ class StreamableHTTPTransport:
             json=message.model_dump(by_alias=True, mode="json", exclude_none=True),
             headers=headers,
         ) as response:
-            if response.status_code == 202:
-                logger.debug("Received 202 Accepted")
-                return
-
-            if response.status_code == 204:
-                logger.debug("Received 204 No Content")
-                return
-
-            if response.status_code == 404:
-                if isinstance(message.root, JSONRPCRequest):
-                    self._send_session_terminated_error(
-                        ctx.server_to_client_queue,
-                        message.root.id,
-                    )
-                return
+            match response.status_code:
+                case HTTPStatus.ACCEPTED:
+                    logger.debug("Received 202 Accepted")
+                    return
+                case HTTPStatus.NO_CONTENT:
+                    logger.debug("Received 204 No Content")
+                    return
+                case HTTPStatus.NOT_FOUND:
+                    if isinstance(message.root, JSONRPCRequest):
+                        error_msg = (
+                            f"MCP server URL returned 404 Not Found: {self.url} "
+                            "— verify the server URL is correct and the server is running"
+                            if is_initialization
+                            else "Session terminated by server"
+                        )
+                        self._send_session_terminated_error(
+                            ctx.server_to_client_queue,
+                            message.root.id,
+                            message=error_msg,
+                        )
+                    return
 
             response.raise_for_status()
             if is_initialization:
                 self._maybe_extract_session_id_from_response(response)
 
-            content_type = cast(str, response.headers.get(CONTENT_TYPE, "").lower())
+            # Per https://modelcontextprotocol.io/specification/2025-06-18/basic#notifications:
+            # The server MUST NOT send a response to notifications.
+            if isinstance(message.root, JSONRPCRequest):
+                content_type = cast(str, response.headers.get(CONTENT_TYPE, "").lower())
 
-            if content_type.startswith(JSON):
-                self._handle_json_response(response, ctx.server_to_client_queue)
-            elif content_type.startswith(SSE):
-                self._handle_sse_response(response, ctx)
-            else:
-                self._handle_unexpected_content_type(
-                    content_type,
-                    ctx.server_to_client_queue,
-                )
+                if content_type.startswith(JSON):
+                    self._handle_json_response(response, ctx.server_to_client_queue)
+                elif content_type.startswith(SSE):
+                    self._handle_sse_response(response, ctx)
+                else:
+                    self._handle_unexpected_content_type(
+                        content_type,
+                        ctx.server_to_client_queue,
+                    )
 
     def _handle_json_response(
         self,
@@ -378,12 +388,13 @@ class StreamableHTTPTransport:
         self,
         server_to_client_queue: ServerToClientQueue,
         request_id: RequestId,
+        message: str = "Session terminated by server",
     ):
         """Send a session terminated error response."""
         jsonrpc_error = JSONRPCError(
             jsonrpc="2.0",
             id=request_id,
-            error=ErrorData(code=32600, message="Session terminated by server"),
+            error=ErrorData(code=32600, message=message),
         )
         session_message = SessionMessage(JSONRPCMessage(jsonrpc_error))
         server_to_client_queue.put(session_message)

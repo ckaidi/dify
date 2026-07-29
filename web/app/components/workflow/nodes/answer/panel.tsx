@@ -7,20 +7,12 @@ import Editor from '@/app/components/workflow/nodes/_base/components/prompt/edit
 import useAvailableVarList from '@/app/components/workflow/nodes/_base/hooks/use-available-var-list'
 import useConfig from './use-config'
 
-const i18nPrefix = 'workflow.nodes.answer'
+const i18nPrefix = 'nodes.answer'
 
-const Panel: FC<NodePanelProps<AnswerNodeType>> = ({
-  id,
-  data,
-}) => {
+const Panel: FC<NodePanelProps<AnswerNodeType>> = ({ id, data }) => {
   const { t } = useTranslation()
 
-  const {
-    readOnly,
-    inputs,
-    handleAnswerChange,
-    filterVar,
-  } = useConfig(id, data)
+  const { readOnly, inputs, handleAnswerChange, filterVar } = useConfig(id, data)
 
   const { availableVars, availableNodesWithParent } = useAvailableVarList(id, {
     onlyLeafNodeVar: false,
@@ -30,11 +22,11 @@ const Panel: FC<NodePanelProps<AnswerNodeType>> = ({
   })
 
   return (
-    <div className="mb-2 mt-2 space-y-4 px-4">
+    <div className="my-2 space-y-4 px-4">
       <Editor
         readOnly={readOnly}
         justVar
-        title={t(`${i18nPrefix}.answer`)!}
+        title={t(($) => $[`${i18nPrefix}.answer`], { ns: 'workflow' })!}
         value={inputs.answer}
         onChange={handleAnswerChange}
         nodesOutputVars={availableVars}

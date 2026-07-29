@@ -1,4 +1,5 @@
 import type { AvailableNodesMetaData } from '@/app/components/workflow/hooks-store/store'
+import type { I18nKeysWithPrefix } from '@/types/i18n'
 import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { WORKFLOW_COMMON_NODES } from '@/app/components/workflow/constants/node'
@@ -6,58 +7,80 @@ import dataSourceEmptyDefault from '@/app/components/workflow/nodes/data-source-
 import dataSourceDefault from '@/app/components/workflow/nodes/data-source/default'
 import knowledgeBaseDefault from '@/app/components/workflow/nodes/knowledge-base/default'
 import { BlockEnum } from '@/app/components/workflow/types'
-import { useGetLanguage } from '@/context/i18n'
+import { useDocLink } from '@/context/i18n'
+import { isAgentV2Enabled } from '@/features/agent-v2/feature-flag'
 
 export const useAvailableNodesMetaData = () => {
   const { t } = useTranslation()
-  const language = useGetLanguage()
+  const docLink = useDocLink()
+  const agentV2Enabled = isAgentV2Enabled()
 
-  const mergedNodesMetaData = useMemo(() => [
-    ...WORKFLOW_COMMON_NODES,
-    {
-      ...dataSourceDefault,
-      defaultValue: {
-        ...dataSourceDefault.defaultValue,
-        _dataSourceStartToAdd: true,
+  const mergedNodesMetaData = useMemo(
+    () => [
+      ...WORKFLOW_COMMON_NODES.filter(
+        (node) =>
+          node.metaData.type !== BlockEnum.HumanInput &&
+          (agentV2Enabled
+            ? node.metaData.type !== BlockEnum.Agent
+            : node.metaData.type !== BlockEnum.AgentV2),
+      ),
+      {
+        ...dataSourceDefault,
+        defaultValue: {
+          ...dataSourceDefault.defaultValue,
+          _dataSourceStartToAdd: true,
+        },
       },
-    },
-    knowledgeBaseDefault,
-    dataSourceEmptyDefault,
-  ], [])
+      knowledgeBaseDefault,
+      dataSourceEmptyDefault,
+    ],
+    [agentV2Enabled],
+  )
 
-  const helpLinkUri = useMemo(() => {
-    if (language === 'zh_Hans')
-      return 'https://docs.dify.ai/zh-hans/guides/knowledge-base/knowledge-pipeline/knowledge-pipeline-orchestration#%E6%AD%A5%E9%AA%A4%E4%B8%80%EF%BC%9A%E6%95%B0%E6%8D%AE%E6%BA%90%E9%85%8D%E7%BD%AE'
-    if (language === 'ja_JP')
-      return 'https://docs.dify.ai/ja-jp/guides/knowledge-base/knowledge-pipeline/knowledge-pipeline-orchestration#%E3%82%B9%E3%83%86%E3%83%83%E3%83%971%EF%BC%9A%E3%83%87%E3%83%BC%E3%82%BF%E3%82%BD%E3%83%BC%E3%82%B9%E3%81%AE%E8%A8%AD%E5%AE%9A'
+  const helpLinkUri = useMemo(
+    () => docLink('/use-dify/knowledge/knowledge-pipeline/knowledge-pipeline-orchestration'),
+    [docLink],
+  )
 
-    return 'https://docs.dify.ai/en/guides/knowledge-base/knowledge-pipeline/knowledge-pipeline-orchestration#step-1%3A-data-source'
-  }, [language])
+  const availableNodesMetaData = useMemo(
+    () =>
+      mergedNodesMetaData.map((node) => {
+        const { metaData } = node
+        const title = t(($) => $[`blocks.${metaData.type}`], { ns: 'workflow' })
+        const description = t(
+          ($) =>
+            $[`blocksAbout.${metaData.type}` as I18nKeysWithPrefix<'workflow', 'blocksAbout.'>],
+          { ns: 'workflow' },
+        )
+        return {
+          ...node,
+          metaData: {
+            ...metaData,
+            title,
+            description,
+            helpLinkUri,
+          },
+          defaultValue: {
+            ...node.defaultValue,
+            type: metaData.type === BlockEnum.AgentV2 ? BlockEnum.Agent : metaData.type,
+            title,
+          },
+        }
+      }),
+    [helpLinkUri, mergedNodesMetaData, t],
+  )
 
-  const availableNodesMetaData = useMemo(() => mergedNodesMetaData.map((node) => {
-    const { metaData } = node
-    const title = t(`workflow.blocks.${metaData.type}` as any) as string
-    const description = t(`workflow.blocksAbout.${metaData.type}` as any) as string
-    return {
-      ...node,
-      metaData: {
-        ...metaData,
-        title,
-        description,
-        helpLinkUri,
-      },
-      defaultValue: {
-        ...node.defaultValue,
-        type: metaData.type,
-        title,
-      },
-    }
-  }), [mergedNodesMetaData, t])
-
-  const availableNodesMetaDataMap = useMemo(() => availableNodesMetaData.reduce((acc, node) => {
-    acc![node.metaData.type] = node
-    return acc
-  }, {} as AvailableNodesMetaData['nodesMap']), [availableNodesMetaData])
+  const availableNodesMetaDataMap = useMemo(
+    () =>
+      availableNodesMetaData.reduce(
+        (acc, node) => {
+          acc![node.metaData.type] = node
+          return acc
+        },
+        {} as AvailableNodesMetaData['nodesMap'],
+      ),
+    [availableNodesMetaData],
+  )
 
   return useMemo(() => {
     return {

@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from '@storybook/nextjs'
+import type { Meta, StoryObj } from '@storybook/nextjs-vite'
 import AudioGallery from '.'
 
 const AUDIO_SOURCES = [
@@ -11,7 +11,8 @@ const meta = {
   parameters: {
     docs: {
       description: {
-        component: 'List of audio players that render waveform previews and playback controls for each source.',
+        component:
+          'List of audio players that render waveform previews and playback controls for each source.',
       },
       source: {
         language: 'tsx',

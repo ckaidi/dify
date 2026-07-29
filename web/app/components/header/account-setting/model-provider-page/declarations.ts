@@ -68,13 +68,11 @@ export enum ModelFeatureEnum {
   video = 'video',
   document = 'document',
   audio = 'audio',
+  polling = 'polling',
   StructuredOutput = 'structured-output',
 }
 
 export enum ModelFeatureTextEnum {
-  toolCall = 'Tool Call',
-  multiToolCall = 'Multi Tool Call',
-  agentThought = 'Agent Thought',
   vision = 'Vision',
   video = 'Video',
   document = 'Document',
@@ -90,27 +88,12 @@ export enum ModelStatusEnum {
   credentialRemoved = 'credential-removed',
 }
 
-export const MODEL_STATUS_TEXT: { [k: string]: TypeWithI18N } = {
-  'no-configure': {
-    en_US: 'No Configure',
-    zh_Hans: '未配置凭据',
-  },
-  'quota-exceeded': {
-    en_US: 'Quota Exceeded',
-    zh_Hans: '额度不足',
-  },
-  'no-permission': {
-    en_US: 'No Permission',
-    zh_Hans: '无使用权限',
-  },
-}
-
 export enum CustomConfigurationStatusEnum {
   active = 'active',
   noConfigure = 'no-configure',
 }
 
-export type FormShowOnObject = {
+type FormShowOnObject = {
   variable: string
   value: string
 }
@@ -139,11 +122,24 @@ export type CredentialFormSchemaTextInput = CredentialFormSchemaBase & {
     type: string
   }
 }
-export type CredentialFormSchemaNumberInput = CredentialFormSchemaBase & { min?: number, max?: number, placeholder?: TypeWithI18N }
-export type CredentialFormSchemaSelect = CredentialFormSchemaBase & { options: FormOption[], placeholder?: TypeWithI18N }
+export type CredentialFormSchemaNumberInput = CredentialFormSchemaBase & {
+  min?: number
+  max?: number
+  placeholder?: TypeWithI18N
+}
+export type CredentialFormSchemaSelect = CredentialFormSchemaBase & {
+  options: FormOption[]
+  placeholder?: TypeWithI18N
+}
 export type CredentialFormSchemaRadio = CredentialFormSchemaBase & { options: FormOption[] }
-export type CredentialFormSchemaSecretInput = CredentialFormSchemaBase & { placeholder?: TypeWithI18N }
-export type CredentialFormSchema = CredentialFormSchemaTextInput | CredentialFormSchemaSelect | CredentialFormSchemaRadio | CredentialFormSchemaSecretInput
+export type CredentialFormSchemaSecretInput = CredentialFormSchemaBase & {
+  placeholder?: TypeWithI18N
+}
+export type CredentialFormSchema =
+  | CredentialFormSchemaTextInput
+  | CredentialFormSchemaSelect
+  | CredentialFormSchemaRadio
+  | CredentialFormSchemaSecretInput
 
 export type ModelItem = {
   model: string
@@ -171,11 +167,9 @@ export enum CurrentSystemQuotaTypeEnum {
 
 export enum QuotaUnitEnum {
   times = 'times',
-  tokens = 'tokens',
-  credits = 'credits',
 }
 
-export type QuotaConfiguration = {
+type QuotaConfiguration = {
   quota_type: CurrentSystemQuotaTypeEnum
   quota_unit: QuotaUnitEnum
   quota_limit: number
@@ -203,11 +197,6 @@ export type CustomModelCredential = CustomModel & {
   current_credential_name?: string
 }
 
-export type CredentialWithModel = Credential & {
-  model: string
-  model_type: ModelTypeEnum
-}
-
 export type ModelProvider = {
   provider: string
   label: TypeWithI18N
@@ -218,7 +207,6 @@ export type ModelProvider = {
   }
   icon_small: TypeWithI18N
   icon_small_dark?: TypeWithI18N
-  icon_large: TypeWithI18N
   background?: string
   supported_model_types: ModelTypeEnum[]
   configurate_methods: ConfigurationMethodEnum[]
@@ -254,7 +242,6 @@ export type ModelProvider = {
 
 export type Model = {
   provider: string
-  icon_large: TypeWithI18N
   icon_small: TypeWithI18N
   icon_small_dark?: TypeWithI18N
   label: TypeWithI18N
@@ -267,7 +254,6 @@ export type DefaultModelResponse = {
   model_type: ModelTypeEnum
   provider: {
     provider: string
-    icon_large: TypeWithI18N
     icon_small: TypeWithI18N
   }
 }
@@ -275,6 +261,7 @@ export type DefaultModelResponse = {
 export type DefaultModel = {
   provider: string
   model: string
+  plugin_id?: string
 }
 
 export type CustomConfigurationModelFixedFields = {
@@ -330,6 +317,14 @@ export type ModelCredential = {
   available_credentials: Credential[]
   current_credential_id?: string
   current_credential_name?: string
+}
+
+export type ModelCredentialPayload = {
+  credentials: Record<string, unknown>
+  model: string
+  model_type: ModelTypeEnum
+  name?: string
+  credential_id?: string
 }
 
 export enum ModelModalModeEnum {

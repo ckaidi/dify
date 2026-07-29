@@ -1,9 +1,6 @@
-import type { ReactNode } from 'react'
 import type { CommandSearchResult } from '../types'
 import type { SlashCommandHandler } from './types'
-import { RiComputerLine, RiMoonLine, RiSunLine } from '@remixicon/react'
-import * as React from 'react'
-import i18n from '@/i18n-config/i18next-config'
+import { getI18n } from 'react-i18next'
 import { registerCommands, unregisterCommands } from './command-bus'
 
 // Theme dependency types
@@ -11,42 +8,47 @@ type ThemeDeps = {
   setTheme?: (value: 'light' | 'dark' | 'system') => void
 }
 
-const THEME_ITEMS: { id: 'light' | 'dark' | 'system', titleKey: string, descKey: string, icon: ReactNode }[] = [
+const THEME_ITEMS = [
   {
     id: 'system',
-    titleKey: 'app.gotoAnything.actions.themeSystem',
-    descKey: 'app.gotoAnything.actions.themeSystemDesc',
-    icon: <RiComputerLine className="h-4 w-4 text-text-tertiary" />,
+    titleKey: 'gotoAnything.actions.themeSystem',
+    descKey: 'gotoAnything.actions.themeSystemDesc',
+    iconClassName: 'i-ri-computer-line',
   },
   {
     id: 'light',
-    titleKey: 'app.gotoAnything.actions.themeLight',
-    descKey: 'app.gotoAnything.actions.themeLightDesc',
-    icon: <RiSunLine className="h-4 w-4 text-text-tertiary" />,
+    titleKey: 'gotoAnything.actions.themeLight',
+    descKey: 'gotoAnything.actions.themeLightDesc',
+    iconClassName: 'i-ri-sun-line',
   },
   {
     id: 'dark',
-    titleKey: 'app.gotoAnything.actions.themeDark',
-    descKey: 'app.gotoAnything.actions.themeDarkDesc',
-    icon: <RiMoonLine className="h-4 w-4 text-text-tertiary" />,
+    titleKey: 'gotoAnything.actions.themeDark',
+    descKey: 'gotoAnything.actions.themeDarkDesc',
+    iconClassName: 'i-ri-moon-line',
   },
-]
+] as const
 
 const buildThemeCommands = (query: string, locale?: string): CommandSearchResult[] => {
+  const i18n = getI18n()
   const q = query.toLowerCase()
-  const list = THEME_ITEMS.filter(item =>
-    !q
-    || i18n.t(item.titleKey as any, { lng: locale }).toLowerCase().includes(q)
-    || item.id.includes(q),
+  const list = THEME_ITEMS.filter(
+    (item) =>
+      !q ||
+      i18n
+        .t(($) => $[item.titleKey], { ns: 'app', lng: locale })
+        .toLowerCase()
+        .includes(q) ||
+      item.id.includes(q),
   )
-  return list.map(item => ({
+  return list.map((item) => ({
     id: item.id,
-    title: i18n.t(item.titleKey as any, { lng: locale }),
-    description: i18n.t(item.descKey as any, { lng: locale }),
+    title: i18n.t(($) => $[item.titleKey], { ns: 'app', lng: locale }),
+    description: i18n.t(($) => $[item.descKey], { ns: 'app', lng: locale }),
     type: 'command' as const,
     icon: (
       <div className="flex h-6 w-6 items-center justify-center rounded-md border-[0.5px] border-divider-regular bg-components-panel-bg">
-        {item.icon}
+        <span aria-hidden className={`${item.iconClassName} size-4 text-text-tertiary`} />
       </div>
     ),
     data: { command: 'theme.set', args: { value: item.id } },
@@ -62,7 +64,7 @@ export const themeCommand: SlashCommandHandler<ThemeDeps> = {
   description: 'Switch between light and dark themes',
   mode: 'submenu', // Explicitly set submenu mode
 
-  async search(args: string, locale: string = 'en') {
+  search(args: string, locale: string = 'en') {
     // Return theme options directly, regardless of parameters
     return buildThemeCommands(args, locale)
   },

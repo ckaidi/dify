@@ -1,11 +1,10 @@
 import hashlib
 import logging
-import time
-from threading import Thread
+from threading import Thread, Timer
 from typing import Union
 
 from flask import Flask, current_app
-from sqlalchemy import exists, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from configs import dify_config
@@ -30,11 +29,14 @@ from core.app.entities.task_entities import (
     StreamEvent,
     WorkflowTaskState,
 )
+from core.db.session_factory import session_factory
 from core.llm_generator.llm_generator import LLMGenerator
 from core.tools.signature import sign_tool_file
 from extensions.ext_database import db
 from extensions.ext_redis import redis_client
-from models.model import AppMode, Conversation, MessageAnnotation, MessageFile
+from models.enums import MessageFileBelongsTo
+from models.model import App, AppMode, Conversation, MessageAnnotation, MessageFile
+from services.account_service import AccountService
 from services.annotation_service import AppAnnotationService
 
 logger = logging.getLogger(__name__)
@@ -57,13 +59,21 @@ class MessageCycleManager:
         self._message_has_file: set[str] = set()
 
     def get_message_event_type(self, message_id: str) -> StreamEvent:
+        # Fast path: cached determination from prior QueueMessageFileEvent
         if message_id in self._message_has_file:
             return StreamEvent.MESSAGE_FILE
 
-        with Session(db.engine, expire_on_commit=False) as session:
-            has_file = session.query(exists().where(MessageFile.message_id == message_id)).scalar()
+        # Use SQLAlchemy 2.x style session.scalar(select(...))
+        with session_factory.create_session() as session:
+            message_file = session.scalar(
+                select(MessageFile)
+                .where(
+                    MessageFile.message_id == message_id,
+                )
+                .where(MessageFile.belongs_to == "assistant")
+            )
 
-        if has_file:
+        if message_file:
             self._message_has_file.add(message_id)
             return StreamEvent.MESSAGE_FILE
 
@@ -79,16 +89,17 @@ class MessageCycleManager:
         if isinstance(self._application_generate_entity, CompletionAppGenerateEntity):
             return None
 
-        is_first_message = self._application_generate_entity.conversation_id is None
+        is_first_message = self._application_generate_entity.is_new_conversation
         extras = self._application_generate_entity.extras
         auto_generate_conversation_name = extras.get("auto_generate_conversation_name", True)
 
+        thread: Thread | None = None
         if auto_generate_conversation_name and is_first_message:
             # start generate thread
             # time.sleep not block other logic
-            time.sleep(1)
-            thread = Thread(
-                target=self._generate_conversation_name_worker,
+            thread = Timer(
+                1,
+                self._generate_conversation_name_worker,
                 kwargs={
                     "flask_app": current_app._get_current_object(),  # type: ignore
                     "conversation_id": conversation_id,
@@ -98,54 +109,57 @@ class MessageCycleManager:
             thread.daemon = True
             thread.start()
 
-            return thread
+        if is_first_message:
+            self._application_generate_entity.is_new_conversation = False
 
-        return None
+        return thread
 
     def _generate_conversation_name_worker(self, flask_app: Flask, conversation_id: str, query: str):
         with flask_app.app_context():
-            # get conversation and message
-            stmt = select(Conversation).where(Conversation.id == conversation_id)
-            conversation = db.session.scalar(stmt)
+            with session_factory.create_session() as session:
+                # get conversation and message
+                stmt = select(Conversation).where(Conversation.id == conversation_id)
+                conversation = session.scalar(stmt)
 
-            if not conversation:
-                return
-
-            if conversation.mode != AppMode.COMPLETION:
-                app_model = conversation.app
-                if not app_model:
+                if not conversation:
                     return
 
-                # generate conversation name
-                query_hash = hashlib.md5(query.encode()).hexdigest()[:16]
-                cache_key = f"conv_name:{conversation_id}:{query_hash}"
+                if conversation.mode != AppMode.COMPLETION:
+                    app_model = session.get(App, conversation.app_id)
+                    if not app_model:
+                        return
 
-                cached_name = redis_client.get(cache_key)
-                if cached_name:
-                    name = cached_name.decode("utf-8")
-                else:
-                    try:
-                        name = LLMGenerator.generate_conversation_name(
-                            app_model.tenant_id, query, conversation_id, conversation.app_id
-                        )
-                        redis_client.setex(cache_key, 3600, name)
-                    except Exception:
-                        if dify_config.DEBUG:
-                            logger.exception("generate conversation name failed, conversation_id: %s", conversation_id)
-                        name = query[:47] + "..." if len(query) > 50 else query
-                conversation.name = name
-                db.session.commit()
-                db.session.close()
+                    # generate conversation name
+                    query_hash = hashlib.md5(query.encode()).hexdigest()[:16]
+                    cache_key = f"conv_name:{conversation_id}:{query_hash}"
 
-    def handle_annotation_reply(self, event: QueueAnnotationReplyEvent) -> MessageAnnotation | None:
+                    cached_name = redis_client.get(cache_key)
+                    if cached_name:
+                        name = cached_name.decode("utf-8")
+                    else:
+                        try:
+                            name = LLMGenerator.generate_conversation_name(
+                                app_model.tenant_id, query, conversation_id, conversation.app_id
+                            )
+                            redis_client.setex(cache_key, 3600, name)
+                        except Exception:
+                            if dify_config.DEBUG:
+                                logger.exception(
+                                    "generate conversation name failed, conversation_id: %s", conversation_id
+                                )
+                            name = query[:47] + "..." if len(query) > 50 else query
+                    conversation.name = name
+                    session.commit()
+
+    def handle_annotation_reply(self, event: QueueAnnotationReplyEvent, session: Session) -> MessageAnnotation | None:
         """
         Handle annotation reply.
         :param event: event
         :return:
         """
-        annotation = AppAnnotationService.get_annotation_by_id(event.message_annotation_id)
+        annotation = AppAnnotationService.get_annotation_by_id(event.message_annotation_id, session)
         if annotation:
-            account = annotation.account
+            account = AccountService.get_account_by_id(annotation.account_id, session=session)
             self._task_state.metadata.annotation_reply = AnnotationReply(
                 id=annotation.id,
                 account=AnnotationReplyAccount(
@@ -199,6 +213,8 @@ class MessageCycleManager:
             message_file = session.scalar(select(MessageFile).where(MessageFile.id == event.message_file_id))
 
         if message_file and message_file.url is not None:
+            self._message_has_file.add(message_file.message_id)
+
             # get tool file id
             tool_file_id = message_file.url.split("/")[-1]
             # trim extension
@@ -221,7 +237,7 @@ class MessageCycleManager:
                 task_id=self._application_generate_entity.task_id,
                 id=message_file.id,
                 type=message_file.type,
-                belongs_to=message_file.belongs_to or "user",
+                belongs_to=message_file.belongs_to or MessageFileBelongsTo.USER,
                 url=url,
             )
 
@@ -244,7 +260,7 @@ class MessageCycleManager:
             task_id=self._application_generate_entity.task_id,
             id=message_id,
             answer=answer,
-            from_variable_selector=from_variable_selector,
+            from_variable_selector=from_variable_selector or [],
             event=event_type or StreamEvent.MESSAGE,
         )
 

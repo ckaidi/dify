@@ -5,7 +5,7 @@ import { useCallback, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 import { InputVarType } from '@/app/components/workflow/types'
 
-const i18nPrefix = 'workflow.nodes.docExtractor'
+const i18nPrefix = 'nodes.docExtractor'
 
 type Params = {
   id: string
@@ -16,29 +16,30 @@ type Params = {
   setRunInputData: (data: Record<string, any>) => void
   toVarInputs: (variables: Variable[]) => InputVar[]
 }
-const useSingleRunFormParams = ({
-  payload,
-  runInputData,
-  setRunInputData,
-}: Params) => {
+const useSingleRunFormParams = ({ payload, runInputData, setRunInputData }: Params) => {
   const { t } = useTranslation()
   const files = runInputData.files
-  const setFiles = useCallback((newFiles: []) => {
-    setRunInputData({
-      ...runInputData,
-      files: newFiles,
-    })
-  }, [runInputData, setRunInputData])
+  const setFiles = useCallback(
+    (newFiles: []) => {
+      setRunInputData({
+        ...runInputData,
+        files: newFiles,
+      })
+    },
+    [runInputData, setRunInputData],
+  )
 
   const forms = useMemo(() => {
     return [
       {
-        inputs: [{
-          label: t(`${i18nPrefix}.inputVar`)!,
-          variable: 'files',
-          type: InputVarType.multiFiles,
-          required: true,
-        }],
+        inputs: [
+          {
+            label: t(($) => $[`${i18nPrefix}.inputVar`], { ns: 'workflow' })!,
+            variable: 'files',
+            type: InputVarType.multiFiles,
+            required: true,
+          },
+        ],
         values: { files },
         onChange: (keyValue: Record<string, any>) => setFiles(keyValue.files),
       },
@@ -50,8 +51,7 @@ const useSingleRunFormParams = ({
   }
 
   const getDependentVar = (variable: string) => {
-    if (variable === 'files')
-      return payload.variable_selector
+    if (variable === 'files') return payload.variable_selector
   }
 
   return {

@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from '@storybook/nextjs'
+import type { Meta, StoryObj } from '@storybook/nextjs-vite'
 import VideoGallery from '.'
 
 const VIDEO_SOURCES = [
@@ -13,7 +13,8 @@ const meta = {
     layout: 'fullscreen',
     docs: {
       description: {
-        component: 'Stacked list of video players with custom controls for progress, volume, and fullscreen.',
+        component:
+          'Stacked list of video players with custom controls for progress, volume, and fullscreen.',
       },
       source: {
         language: 'tsx',

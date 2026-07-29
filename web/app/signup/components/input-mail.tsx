@@ -1,63 +1,68 @@
 'use client'
 import type { MailSendResponse } from '@/service/use-common'
-import { noop } from 'es-toolkit/compat'
-import Link from 'next/link'
+import { Button } from '@langgenius/dify-ui/button'
+import { toast } from '@langgenius/dify-ui/toast'
+import { useSuspenseQuery } from '@tanstack/react-query'
 import { useCallback, useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useContext } from 'use-context-selector'
-import Button from '@/app/components/base/button'
 import Input from '@/app/components/base/input'
-import Toast from '@/app/components/base/toast'
 import Split from '@/app/signin/split'
 import { emailRegex } from '@/config'
-import { useGlobalPublicStore } from '@/context/global-public-context'
-import I18n from '@/context/i18n'
+import { useLocale } from '@/context/i18n'
+import { systemFeaturesQueryOptions } from '@/features/system-features/client'
+import Link from '@/next/link'
+import { useSearchParams } from '@/next/navigation'
 import { useSendMail } from '@/service/use-common'
 
 type Props = {
   onSuccess: (email: string, payload: string) => void
 }
-export default function Form({
-  onSuccess,
-}: Props) {
+export default function Form({ onSuccess }: Props) {
   const { t } = useTranslation()
   const [email, setEmail] = useState('')
-  const { locale } = useContext(I18n)
-  const { systemFeatures } = useGlobalPublicStore()
+  const locale = useLocale()
+  const searchParams = useSearchParams()
+  const queryString = searchParams.toString()
+  const signinHref = queryString ? `/signin?${queryString}` : '/signin'
+  const { data: systemFeatures } = useSuspenseQuery(systemFeaturesQueryOptions())
 
   const { mutateAsync: submitMail, isPending } = useSendMail()
 
   const handleSubmit = useCallback(async () => {
+    if (isPending) return
+
     if (!email) {
-      Toast.notify({ type: 'error', message: t('login.error.emailEmpty') })
+      toast.error(t(($) => $['error.emailEmpty'], { ns: 'login' }))
       return
     }
     if (!emailRegex.test(email)) {
-      Toast.notify({
-        type: 'error',
-        message: t('login.error.emailInValid'),
-      })
+      toast.error(t(($) => $['error.emailInValid'], { ns: 'login' }))
       return
     }
     const res = await submitMail({ email, language: locale })
     if ((res as MailSendResponse).result === 'success')
       onSuccess(email, (res as MailSendResponse).data)
-  }, [email, locale, submitMail, t])
+  }, [email, locale, submitMail, t, isPending, onSuccess])
 
   return (
-    <form onSubmit={noop}>
+    <form
+      onSubmit={(e) => {
+        e.preventDefault()
+        handleSubmit()
+      }}
+    >
       <div className="mb-3">
-        <label htmlFor="email" className="system-md-semibold my-2 text-text-secondary">
-          {t('login.email')}
+        <label htmlFor="email" className="my-2 system-md-semibold text-text-secondary">
+          {t(($) => $.email, { ns: 'login' })}
         </label>
         <div className="mt-1">
           <Input
             value={email}
-            onChange={e => setEmail(e.target.value)}
+            onChange={(e) => setEmail(e.target.value)}
             id="email"
             type="email"
             autoComplete="email"
-            placeholder={t('login.emailPlaceholder') || ''}
+            placeholder={t(($) => $.emailPlaceholder, { ns: 'login' }) || ''}
             tabIndex={1}
           />
         </div>
@@ -66,51 +71,47 @@ export default function Form({
         <Button
           tabIndex={2}
           variant="primary"
-          onClick={handleSubmit}
+          type="submit"
           disabled={isPending || !email}
           className="w-full"
         >
-          {t('login.signup.verifyMail')}
+          {t(($) => $['signup.verifyMail'], { ns: 'login' })}
         </Button>
       </div>
-      <Split className="mb-5 mt-4" />
+      <Split className="mt-4 mb-5" />
 
-      <div className="text-[13px] font-medium leading-4 text-text-secondary">
-        <span>{t('login.signup.haveAccount')}</span>
-        <Link
-          className="text-text-accent"
-          href="/signin"
-        >
-          {t('login.signup.signIn')}
+      <div className="text-[13px] leading-4 font-medium text-text-secondary">
+        <span>{t(($) => $['signup.haveAccount'], { ns: 'login' })}</span>
+        <Link className="text-text-accent" href={signinHref}>
+          {t(($) => $['signup.signIn'], { ns: 'login' })}
         </Link>
       </div>
 
       {!systemFeatures.branding.enabled && (
         <>
-          <div className="system-xs-regular mt-3 block w-full text-text-tertiary">
-            {t('login.tosDesc')}
-              &nbsp;
+          <div className="mt-3 block w-full system-xs-regular text-text-tertiary">
+            {t(($) => $.tosDesc, { ns: 'login' })}
+            &nbsp;
             <Link
               className="system-xs-medium text-text-secondary hover:underline"
               target="_blank"
               rel="noopener noreferrer"
               href="https://dify.ai/terms"
             >
-              {t('login.tos')}
+              {t(($) => $.tos, { ns: 'login' })}
             </Link>
-              &nbsp;&&nbsp;
+            &nbsp;&&nbsp;
             <Link
               className="system-xs-medium text-text-secondary hover:underline"
               target="_blank"
               rel="noopener noreferrer"
               href="https://dify.ai/privacy"
             >
-              {t('login.pp')}
+              {t(($) => $.pp, { ns: 'login' })}
             </Link>
           </div>
         </>
       )}
-
     </form>
   )
 }

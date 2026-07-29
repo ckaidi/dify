@@ -1,17 +1,20 @@
 import type { Plan, UsagePlanInfo } from '@/app/components/billing/type'
 import type { ProviderContextState } from '@/context/provider-context'
-import { merge, noop } from 'es-toolkit/compat'
+import { merge } from 'es-toolkit/compat'
+import { noop } from 'es-toolkit/function'
 import { defaultPlan } from '@/app/components/billing/config'
 
 // Avoid being mocked in tests
 export const baseProviderContextValue: ProviderContextState = {
   modelProviders: [],
   refreshModelProviders: noop,
+  isLoadingModelProviders: false,
   textGenerationModelList: [],
   supportRetrievalMethods: [],
   isAPIKeySet: true,
   plan: defaultPlan,
   isFetchedPlan: false,
+  isFetchedPlanInfo: false,
   enableBilling: false,
   onPlanInfoChanged: noop,
   enableReplaceWebAppLogo: false,
@@ -34,9 +37,12 @@ export const baseProviderContextValue: ProviderContextState = {
   refreshLicenseLimit: noop,
   isAllowTransferWorkspace: false,
   isAllowPublishAsCustomKnowledgePipelineTemplate: false,
+  humanInputEmailDeliveryEnabled: false,
 }
 
-export const createMockProviderContextValue = (overrides: Partial<ProviderContextState> = {}): ProviderContextState => {
+export const createMockProviderContextValue = (
+  overrides: Partial<ProviderContextState> = {},
+): ProviderContextState => {
   const merged = merge({}, baseProviderContextValue, overrides)
 
   return {
@@ -54,7 +60,10 @@ export const createMockPlan = (plan: Plan): ProviderContextState =>
     }),
   })
 
-export const createMockPlanUsage = (usage: UsagePlanInfo, ctx: Partial<ProviderContextState>): ProviderContextState =>
+export const createMockPlanUsage = (
+  usage: UsagePlanInfo,
+  ctx: Partial<ProviderContextState>,
+): ProviderContextState =>
   createMockProviderContextValue({
     ...ctx,
     plan: merge(ctx.plan, {
@@ -62,7 +71,10 @@ export const createMockPlanUsage = (usage: UsagePlanInfo, ctx: Partial<ProviderC
     }),
   })
 
-export const createMockPlanTotal = (total: UsagePlanInfo, ctx: Partial<ProviderContextState>): ProviderContextState =>
+export const createMockPlanTotal = (
+  total: UsagePlanInfo,
+  ctx: Partial<ProviderContextState>,
+): ProviderContextState =>
   createMockProviderContextValue({
     ...ctx,
     plan: merge(ctx.plan, {
@@ -70,7 +82,10 @@ export const createMockPlanTotal = (total: UsagePlanInfo, ctx: Partial<ProviderC
     }),
   })
 
-export const createMockPlanReset = (reset: Partial<ProviderContextState['plan']['reset']>, ctx: Partial<ProviderContextState>): ProviderContextState =>
+export const createMockPlanReset = (
+  reset: Partial<ProviderContextState['plan']['reset']>,
+  ctx: Partial<ProviderContextState>,
+): ProviderContextState =>
   createMockProviderContextValue({
     ...ctx,
     plan: merge(ctx?.plan, {

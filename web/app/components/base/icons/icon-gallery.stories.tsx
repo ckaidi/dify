@@ -1,9 +1,9 @@
-import type { Meta, StoryObj } from '@storybook/nextjs'
+/// <reference types="vite/client" />
+import type { Meta, StoryObj } from '@storybook/nextjs-vite'
 import * as React from 'react'
 
-declare const require: any
-
 type IconComponent = React.ComponentType<Record<string, unknown>>
+type IconModule = { default: IconComponent }
 
 type IconEntry = {
   name: string
@@ -12,18 +12,15 @@ type IconEntry = {
   Component: IconComponent
 }
 
-const iconContext = require.context('./src', true, /\.tsx$/)
+const iconModules: Record<string, IconModule> = import.meta.glob('./src/**/*.tsx', { eager: true })
 
-const iconEntries: IconEntry[] = iconContext
-  .keys()
-  .filter((key: string) => !key.endsWith('.stories.tsx') && !key.endsWith('.spec.tsx'))
-  .map((key: string) => {
-    const mod = iconContext(key)
-    const Component = mod.default as IconComponent | undefined
-    if (!Component)
-      return null
+const iconEntries: IconEntry[] = Object.entries(iconModules)
+  .filter(([key]) => !key.endsWith('.stories.tsx') && !key.endsWith('.spec.tsx'))
+  .map(([key, mod]) => {
+    const Component = mod.default
+    if (!Component) return null
 
-    const relativePath = key.replace(/^\.\//, '')
+    const relativePath = key.replace(/^\.\/src\//, '')
     const path = `app/components/base/icons/src/${relativePath}`
     const parts = relativePath.split('/')
     const fileName = parts.pop() || ''
@@ -40,30 +37,32 @@ const iconEntries: IconEntry[] = iconContext
   .filter(Boolean) as IconEntry[]
 
 const sortedEntries = [...iconEntries].sort((a, b) => {
-  if (a.category === b.category)
-    return a.name.localeCompare(b.name)
+  if (a.category === b.category) return a.name.localeCompare(b.name)
   return a.category.localeCompare(b.category)
 })
 
 const filterEntries = (entries: IconEntry[], query: string) => {
   const normalized = query.trim().toLowerCase()
-  if (!normalized)
-    return entries
+  if (!normalized) return entries
 
-  return entries.filter(entry =>
-    entry.name.toLowerCase().includes(normalized)
-    || entry.path.toLowerCase().includes(normalized)
-    || entry.category.toLowerCase().includes(normalized),
+  return entries.filter(
+    (entry) =>
+      entry.name.toLowerCase().includes(normalized) ||
+      entry.path.toLowerCase().includes(normalized) ||
+      entry.category.toLowerCase().includes(normalized),
   )
 }
 
-const groupByCategory = (entries: IconEntry[]) => entries.reduce((acc, entry) => {
-  if (!acc[entry.category])
-    acc[entry.category] = []
+const groupByCategory = (entries: IconEntry[]) =>
+  entries.reduce(
+    (acc, entry) => {
+      if (!acc[entry.category]) acc[entry.category] = []
 
-  acc[entry.category].push(entry)
-  return acc
-}, {} as Record<string, IconEntry[]>)
+      acc[entry.category]!.push(entry)
+      return acc
+    },
+    {} as Record<string, IconEntry[]>,
+  )
 
 const containerStyle: React.CSSProperties = {
   padding: 24,
@@ -160,8 +159,7 @@ const IconGalleryStory = () => {
   )
 
   React.useEffect(() => {
-    if (!copiedPath)
-      return undefined
+    if (!copiedPath) return undefined
 
     const timerId = window.setTimeout(() => {
       setCopiedPath(null)
@@ -171,7 +169,8 @@ const IconGalleryStory = () => {
   }, [copiedPath])
 
   const handleCopy = React.useCallback((text: string) => {
-    navigator.clipboard?.writeText(text)
+    navigator.clipboard
+      ?.writeText(text)
       .then(() => {
         setCopiedPath(text)
       })
@@ -185,45 +184,34 @@ const IconGalleryStory = () => {
       <header style={headerStyle}>
         <h1 style={{ margin: 0 }}>Icon Gallery</h1>
         <p style={{ margin: 0, color: '#5f5f66' }}>
-          Browse all icon components sourced from
-          {' '}
-          <code>app/components/base/icons/src</code>
-          . Use the search bar
-          to filter by name or path.
+          Browse all icon components sourced from <code>app/components/base/icons/src</code>. Use
+          the search bar to filter by name or path.
         </p>
         <div style={controlsStyle}>
           <input
             style={searchInputStyle}
             placeholder="Search icons"
             value={query}
-            onChange={event => setQuery(event.target.value)}
+            onChange={(event) => setQuery(event.target.value)}
           />
-          <span style={{ color: '#5f5f66' }}>
-            {filtered.length}
-            {' '}
-            icons
-          </span>
+          <span style={{ color: '#5f5f66' }}>{filtered.length} icons</span>
           <button
             type="button"
-            onClick={() => setPreviewTheme(prev => (prev === 'light' ? 'dark' : 'light'))}
+            onClick={() => setPreviewTheme((prev) => (prev === 'light' ? 'dark' : 'light'))}
             style={toggleButtonStyle}
           >
-            Toggle
-            {' '}
-            {previewTheme === 'light' ? 'dark' : 'light'}
-            {' '}
-            preview
+            Toggle {previewTheme === 'light' ? 'dark' : 'light'} preview
           </button>
         </div>
       </header>
       {categoryOrder.length === 0 && (
         <p style={emptyTextStyle}>No icons match the current filter.</p>
       )}
-      {categoryOrder.map(category => (
+      {categoryOrder.map((category) => (
         <section key={category} style={sectionStyle}>
           <h2 style={{ margin: 0, fontSize: 18 }}>{category}</h2>
           <div style={gridStyle}>
-            {grouped[category].map(entry => (
+            {grouped[category]!.map((entry) => (
               <div key={entry.path} style={cardStyle}>
                 <div
                   style={{

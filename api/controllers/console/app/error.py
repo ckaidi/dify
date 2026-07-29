@@ -79,16 +79,22 @@ class ProviderNotSupportSpeechToTextError(BaseHTTPException):
     code = 400
 
 
+class SpeechToTextDisabledError(BaseHTTPException):
+    error_code = "speech_to_text_disabled"
+    description = "Speech to text is disabled."
+    code = 400
+
+
 class DraftWorkflowNotExist(BaseHTTPException):
     error_code = "draft_workflow_not_exist"
     description = "Draft workflow need to be initialized."
-    code = 400
+    code = 404
 
 
 class DraftWorkflowNotSync(BaseHTTPException):
     error_code = "draft_workflow_not_sync"
     description = "Workflow graph might have been modified, please refresh and resubmit."
-    code = 400
+    code = 409
 
 
 class TracingConfigNotExist(BaseHTTPException):
@@ -115,3 +121,9 @@ class InvokeRateLimitError(BaseHTTPException):
     error_code = "rate_limit_error"
     description = "Rate Limit Error"
     code = 429
+
+
+class NeedAddIdsError(BaseHTTPException):
+    error_code = "need_add_ids"
+    description = "Need to add ids."
+    code = 400

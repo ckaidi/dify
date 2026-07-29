@@ -1,18 +1,19 @@
 'use client'
 import type { FC } from 'react'
 import type { Memory } from '../../../types'
+import { cn } from '@langgenius/dify-ui/cn'
+import { Fieldset, FieldsetLegend } from '@langgenius/dify-ui/fieldset'
+import { Slider } from '@langgenius/dify-ui/slider'
+import { Switch } from '@langgenius/dify-ui/switch'
 import { produce } from 'immer'
 import * as React from 'react'
 import { useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import Input from '@/app/components/base/input'
-import Slider from '@/app/components/base/slider'
-import Switch from '@/app/components/base/switch'
 import Field from '@/app/components/workflow/nodes/_base/components/field'
-import { cn } from '@/utils/classnames'
 import { MemoryRole } from '../../../types'
 
-const i18nPrefix = 'workflow.nodes.common.memory'
+const i18nPrefix = 'nodes.common.memory'
 const WINDOW_SIZE_MIN = 1
 const WINDOW_SIZE_MAX = 100
 const WINDOW_SIZE_DEFAULT = 50
@@ -22,15 +23,13 @@ type RoleItemProps = {
   value: string
   onChange: (value: string) => void
 }
-const RoleItem: FC<RoleItemProps> = ({
-  readonly,
-  title,
-  value,
-  onChange,
-}) => {
-  const handleChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    onChange(e.target.value)
-  }, [onChange])
+const RoleItem: FC<RoleItemProps> = ({ readonly, title, value, onChange }) => {
+  const handleChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      onChange(e.target.value)
+    },
+    [onChange],
+  )
   return (
     <div className="flex items-center justify-between">
       <div className="text-[13px] font-normal text-text-secondary">{title}</div>
@@ -45,13 +44,14 @@ const RoleItem: FC<RoleItemProps> = ({
   )
 }
 
-type Props = {
+type Props = Readonly<{
   className?: string
   readonly: boolean
   config: { data?: Memory }
   onChange: (memory?: Memory) => void
   canSetRoleName?: boolean
-}
+  defaultMemory?: Memory
+}>
 
 const MEMORY_DEFAULT: Memory = {
   window: { enabled: false, size: WINDOW_SIZE_DEFAULT },
@@ -64,84 +64,91 @@ const MemoryConfig: FC<Props> = ({
   config = { data: MEMORY_DEFAULT },
   onChange,
   canSetRoleName = false,
+  defaultMemory = MEMORY_DEFAULT,
 }) => {
   const { t } = useTranslation()
   const payload = config.data
-  const handleMemoryEnabledChange = useCallback((enabled: boolean) => {
-    onChange(enabled ? MEMORY_DEFAULT : undefined)
-  }, [onChange])
-  const handleWindowEnabledChange = useCallback((enabled: boolean) => {
-    const newPayload = produce(config.data || MEMORY_DEFAULT, (draft) => {
-      if (!draft.window)
-        draft.window = { enabled: false, size: WINDOW_SIZE_DEFAULT }
+  const windowSizeLabel = t(($) => $[`${i18nPrefix}.windowSize`], { ns: 'workflow' })
+  const handleMemoryEnabledChange = useCallback(
+    (enabled: boolean) => {
+      onChange(enabled ? defaultMemory : undefined)
+    },
+    [defaultMemory, onChange],
+  )
+  const handleWindowEnabledChange = useCallback(
+    (enabled: boolean) => {
+      const newPayload = produce(config.data || defaultMemory, (draft) => {
+        if (!draft.window) draft.window = { enabled: false, size: WINDOW_SIZE_DEFAULT }
 
-      draft.window.enabled = enabled
-    })
+        draft.window.enabled = enabled
+      })
 
-    onChange(newPayload)
-  }, [config, onChange])
+      onChange(newPayload)
+    },
+    [config, defaultMemory, onChange],
+  )
 
-  const handleWindowSizeChange = useCallback((size: number | string) => {
-    const newPayload = produce(payload || MEMORY_DEFAULT, (draft) => {
-      if (!draft.window)
-        draft.window = { enabled: true, size: WINDOW_SIZE_DEFAULT }
-      let limitedSize: null | string | number = size
-      if (limitedSize === '') {
-        limitedSize = null
-      }
-      else {
-        limitedSize = Number.parseInt(limitedSize as string, 10)
-        if (isNaN(limitedSize))
-          limitedSize = WINDOW_SIZE_DEFAULT
+  const handleWindowSizeChange = useCallback(
+    (size: number | string) => {
+      const newPayload = produce(payload || defaultMemory, (draft) => {
+        if (!draft.window) draft.window = { enabled: true, size: WINDOW_SIZE_DEFAULT }
+        let limitedSize: null | string | number = size
+        if (limitedSize === '') {
+          limitedSize = null
+        } else {
+          limitedSize = Number.parseInt(limitedSize as string, 10)
+          if (isNaN(limitedSize)) limitedSize = WINDOW_SIZE_DEFAULT
 
-        if (limitedSize < WINDOW_SIZE_MIN)
-          limitedSize = WINDOW_SIZE_MIN
+          if (limitedSize < WINDOW_SIZE_MIN) limitedSize = WINDOW_SIZE_MIN
 
-        if (limitedSize > WINDOW_SIZE_MAX)
-          limitedSize = WINDOW_SIZE_MAX
-      }
+          if (limitedSize > WINDOW_SIZE_MAX) limitedSize = WINDOW_SIZE_MAX
+        }
 
-      draft.window.size = limitedSize as number
-    })
-    onChange(newPayload)
-  }, [payload, onChange])
+        draft.window.size = limitedSize as number
+      })
+      onChange(newPayload)
+    },
+    [payload, defaultMemory, onChange],
+  )
 
   const handleBlur = useCallback(() => {
     const payload = config.data
-    if (!payload)
-      return
+    if (!payload) return
 
     if (payload.window.size === '' || payload.window.size === null)
       handleWindowSizeChange(WINDOW_SIZE_DEFAULT)
   }, [handleWindowSizeChange, config])
 
-  const handleRolePrefixChange = useCallback((role: MemoryRole) => {
-    return (value: string) => {
-      const newPayload = produce(config.data || MEMORY_DEFAULT, (draft) => {
-        if (!draft.role_prefix) {
-          draft.role_prefix = {
-            user: '',
-            assistant: '',
+  const handleRolePrefixChange = useCallback(
+    (role: MemoryRole) => {
+      return (value: string) => {
+        const newPayload = produce(config.data || defaultMemory, (draft) => {
+          if (!draft.role_prefix) {
+            draft.role_prefix = {
+              user: '',
+              assistant: '',
+            }
           }
-        }
-        draft.role_prefix[role] = value
-      })
-      onChange(newPayload)
-    }
-  }, [config, onChange])
+          draft.role_prefix[role] = value
+        })
+        onChange(newPayload)
+      }
+    },
+    [config, defaultMemory, onChange],
+  )
   return (
     <div className={cn(className)}>
       <Field
-        title={t(`${i18nPrefix}.memory`)}
-        tooltip={t(`${i18nPrefix}.memoryTip`)!}
-        operations={(
+        title={t(($) => $[`${i18nPrefix}.memory`], { ns: 'workflow' })}
+        tooltip={t(($) => $[`${i18nPrefix}.memoryTip`], { ns: 'workflow' })!}
+        operations={
           <Switch
-            defaultValue={!!payload}
-            onChange={handleMemoryEnabledChange}
+            checked={!!payload}
+            onCheckedChange={handleMemoryEnabledChange}
             size="md"
             disabled={readonly}
           />
-        )}
+        }
       >
         {payload && (
           <>
@@ -149,24 +156,29 @@ const MemoryConfig: FC<Props> = ({
             <div className="flex justify-between">
               <div className="flex h-8 items-center space-x-2">
                 <Switch
-                  defaultValue={payload?.window?.enabled}
-                  onChange={handleWindowEnabledChange}
+                  checked={payload?.window?.enabled}
+                  onCheckedChange={handleWindowEnabledChange}
                   size="md"
                   disabled={readonly}
                 />
-                <div className="system-xs-medium-uppercase text-text-tertiary">{t(`${i18nPrefix}.windowSize`)}</div>
+                <div className="system-xs-medium-uppercase text-text-tertiary">
+                  {windowSizeLabel}
+                </div>
               </div>
-              <div className="flex h-8 items-center space-x-2">
+              <Fieldset className="flex h-8 items-center space-x-2">
+                <FieldsetLegend className="sr-only">{windowSizeLabel}</FieldsetLegend>
                 <Slider
                   className="w-[144px]"
                   value={(payload.window?.size || WINDOW_SIZE_DEFAULT) as number}
                   min={WINDOW_SIZE_MIN}
                   max={WINDOW_SIZE_MAX}
                   step={1}
-                  onChange={handleWindowSizeChange}
+                  onValueChange={handleWindowSizeChange}
                   disabled={readonly || !payload.window?.enabled}
+                  aria-label={windowSizeLabel}
                 />
                 <Input
+                  aria-label={windowSizeLabel}
                   value={(payload.window?.size || WINDOW_SIZE_DEFAULT) as number}
                   wrapperClassName="w-12"
                   className="appearance-none pr-0"
@@ -174,25 +186,27 @@ const MemoryConfig: FC<Props> = ({
                   min={WINDOW_SIZE_MIN}
                   max={WINDOW_SIZE_MAX}
                   step={1}
-                  onChange={e => handleWindowSizeChange(e.target.value)}
+                  onChange={(e) => handleWindowSizeChange(e.target.value)}
                   onBlur={handleBlur}
                   disabled={readonly || !payload.window?.enabled}
                 />
-              </div>
+              </Fieldset>
             </div>
             {canSetRoleName && (
               <div className="mt-4">
-                <div className="text-xs font-medium uppercase leading-6 text-text-tertiary">{t(`${i18nPrefix}.conversationRoleName`)}</div>
+                <div className="text-xs/6 font-medium text-text-tertiary uppercase">
+                  {t(($) => $[`${i18nPrefix}.conversationRoleName`], { ns: 'workflow' })}
+                </div>
                 <div className="mt-1 space-y-2">
                   <RoleItem
                     readonly={readonly}
-                    title={t(`${i18nPrefix}.user`)}
+                    title={t(($) => $[`${i18nPrefix}.user`], { ns: 'workflow' })}
                     value={payload.role_prefix?.user || ''}
                     onChange={handleRolePrefixChange(MemoryRole.user)}
                   />
                   <RoleItem
                     readonly={readonly}
-                    title={t(`${i18nPrefix}.assistant`)}
+                    title={t(($) => $[`${i18nPrefix}.assistant`], { ns: 'workflow' })}
                     value={payload.role_prefix?.assistant || ''}
                     onChange={handleRolePrefixChange(MemoryRole.assistant)}
                   />
@@ -201,7 +215,6 @@ const MemoryConfig: FC<Props> = ({
             )}
           </>
         )}
-
       </Field>
     </div>
   )

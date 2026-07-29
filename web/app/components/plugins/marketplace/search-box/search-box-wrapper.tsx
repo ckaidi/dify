@@ -1,32 +1,45 @@
 'use client'
 
-import { useMarketplaceContext } from '../context'
-import { useMixedTranslation } from '../hooks'
+import { useTranslation } from '#i18n'
+import { useFilterPluginTags, useSearchPluginText } from '../atoms'
 import SearchBox from './index'
 
 type SearchBoxWrapperProps = {
-  locale?: string
+  wrapperClassName?: string
+  inputClassName?: string
+  inputElementClassName?: string
+  searchIconClassName?: string
+  placeholder?: string
+  showTags?: boolean
+  usedInMarketplace?: boolean
 }
+
 const SearchBoxWrapper = ({
-  locale,
+  wrapperClassName = 'z-11 mx-auto w-[640px] shrink-0',
+  inputClassName = 'w-full',
+  inputElementClassName,
+  searchIconClassName,
+  placeholder,
+  showTags = true,
+  usedInMarketplace = true,
 }: SearchBoxWrapperProps) => {
-  const { t } = useMixedTranslation(locale)
-  const searchPluginText = useMarketplaceContext(v => v.searchPluginText)
-  const handleSearchPluginTextChange = useMarketplaceContext(v => v.handleSearchPluginTextChange)
-  const filterPluginTags = useMarketplaceContext(v => v.filterPluginTags)
-  const handleFilterPluginTagsChange = useMarketplaceContext(v => v.handleFilterPluginTagsChange)
+  const { t } = useTranslation()
+  const [searchPluginText, handleSearchPluginTextChange] = useSearchPluginText()
+  const [filterPluginTags, handleFilterPluginTagsChange] = useFilterPluginTags()
 
   return (
     <SearchBox
-      wrapperClassName="z-[11] mx-auto w-[640px] shrink-0"
-      inputClassName="w-full"
+      wrapperClassName={wrapperClassName}
+      inputClassName={inputClassName}
+      inputElementClassName={inputElementClassName}
+      searchIconClassName={searchIconClassName}
       search={searchPluginText}
       onSearchChange={handleSearchPluginTextChange}
       tags={filterPluginTags}
       onTagsChange={handleFilterPluginTagsChange}
-      locale={locale}
-      placeholder={t('plugin.searchPlugins')}
-      usedInMarketplace
+      placeholder={placeholder ?? t(($) => $.searchPlugins, { ns: 'plugin' })}
+      showTags={showTags}
+      usedInMarketplace={usedInMarketplace}
     />
   )
 }

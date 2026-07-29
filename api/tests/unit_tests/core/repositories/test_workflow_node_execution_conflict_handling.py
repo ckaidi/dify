@@ -10,11 +10,11 @@ from sqlalchemy.orm import sessionmaker
 from core.repositories.sqlalchemy_workflow_node_execution_repository import (
     SQLAlchemyWorkflowNodeExecutionRepository,
 )
-from core.workflow.entities.workflow_node_execution import (
+from graphon.entities.workflow_node_execution import (
     WorkflowNodeExecution,
     WorkflowNodeExecutionStatus,
 )
-from core.workflow.enums import NodeType
+from graphon.enums import BuiltinNodeTypes
 from libs.datetime_utils import naive_utc_now
 from models import Account, WorkflowNodeExecutionTriggeredFrom
 
@@ -35,6 +35,7 @@ class TestWorkflowNodeExecutionConflictHandling:
         # Create repository instance
         self.repository = SQLAlchemyWorkflowNodeExecutionRepository(
             session_factory=self.mock_session_factory,
+            tenant_id="test-tenant-id",
             user=self.mock_user,
             app_id="test-app-id",
             triggered_from=WorkflowNodeExecutionTriggeredFrom.WORKFLOW_RUN,
@@ -70,7 +71,7 @@ class TestWorkflowNodeExecutionConflictHandling:
             workflow_execution_id="test-workflow-execution-id",
             node_execution_id="test-node-execution-id",
             node_id="test-node-id",
-            node_type=NodeType.START,
+            node_type=BuiltinNodeTypes.START,
             title="Test Node",
             index=1,
             status=WorkflowNodeExecutionStatus.RUNNING,
@@ -98,6 +99,7 @@ class TestWorkflowNodeExecutionConflictHandling:
 
         # Mock existing record
         mock_existing = MagicMock()
+        mock_existing.process_data_dict = None
         mock_session.get.return_value = mock_existing
         mock_session.commit.return_value = None
 
@@ -108,7 +110,7 @@ class TestWorkflowNodeExecutionConflictHandling:
             workflow_execution_id="test-workflow-execution-id",
             node_execution_id="test-node-execution-id",
             node_id="test-node-id",
-            node_type=NodeType.START,
+            node_type=BuiltinNodeTypes.START,
             title="Test Node",
             index=1,
             status=WorkflowNodeExecutionStatus.SUCCEEDED,
@@ -153,7 +155,7 @@ class TestWorkflowNodeExecutionConflictHandling:
             workflow_execution_id="test-workflow-execution-id",
             node_execution_id="test-node-execution-id",
             node_id="test-node-id",
-            node_type=NodeType.START,
+            node_type=BuiltinNodeTypes.START,
             title="Test Node",
             index=1,
             status=WorkflowNodeExecutionStatus.RUNNING,
@@ -195,7 +197,7 @@ class TestWorkflowNodeExecutionConflictHandling:
             workflow_execution_id="test-workflow-execution-id",
             node_execution_id="test-node-execution-id",
             node_id="test-node-id",
-            node_type=NodeType.START,
+            node_type=BuiltinNodeTypes.START,
             title="Test Node",
             index=1,
             status=WorkflowNodeExecutionStatus.RUNNING,

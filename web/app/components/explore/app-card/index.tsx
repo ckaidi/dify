@@ -1,31 +1,71 @@
 'use client'
 import type { App } from '@/models/explore'
-import { PlusIcon } from '@heroicons/react/20/solid'
+import type { TryAppSelection } from '@/types/try-app'
+import { cn } from '@langgenius/dify-ui/cn'
+import { useSuspenseQuery } from '@tanstack/react-query'
+import { useId } from 'react'
 import { useTranslation } from 'react-i18next'
+import { trackEvent } from '@/app/components/base/amplitude'
 import AppIcon from '@/app/components/base/app-icon'
+import { systemFeaturesQueryOptions } from '@/features/system-features/client'
 import { AppModeEnum } from '@/types/app'
-import { cn } from '@/utils/classnames'
 import { AppTypeIcon } from '../../app/type-selector'
-import Button from '../../base/button'
 
 export type AppCardProps = {
   app: App
   canCreate: boolean
   onCreate: () => void
-  isExplore: boolean
+  onTry: (params: TryAppSelection) => void
+  isExplore?: boolean
 }
 
-const AppCard = ({
-  app,
-  canCreate,
-  onCreate,
-  isExplore,
-}: AppCardProps) => {
+const AppCard = ({ app, canCreate, onCreate, onTry, isExplore = true }: AppCardProps) => {
   const { t } = useTranslation()
+  const { data: deploymentEdition } = useSuspenseQuery({
+    ...systemFeaturesQueryOptions(),
+    select: ({ deployment_edition }) => deployment_edition,
+  })
+  const nameId = useId()
+  const descriptionId = useId()
   const { app: appBasicInfo } = app
+  const canViewApp = deploymentEdition === 'CLOUD'
+  const isClickable = isExplore && (canViewApp || canCreate)
+  const handleTryApp = () => {
+    trackEvent('preview_template', {
+      template_id: app.app_id,
+      template_name: appBasicInfo.name,
+      template_mode: appBasicInfo.mode,
+      template_categories: app.categories,
+      page: 'explore',
+    })
+    onTry({ appId: app.app_id, app })
+  }
+  const handleCardClick = () => {
+    if (canViewApp) {
+      handleTryApp()
+      return
+    }
+
+    if (canCreate) onCreate()
+  }
+
   return (
-    <div className={cn('group relative col-span-1 flex cursor-pointer flex-col overflow-hidden rounded-lg border-[0.5px] border-components-panel-border bg-components-panel-on-panel-item-bg pb-2 shadow-sm transition-all duration-200 ease-in-out hover:shadow-lg')}>
-      <div className="flex h-[66px] shrink-0 grow-0 items-center gap-3 px-[14px] pb-3 pt-[14px]">
+    <div
+      className={cn(
+        'group relative col-span-1 flex h-35.5 flex-col overflow-hidden rounded-xl border-[0.5px] border-components-panel-border bg-components-panel-on-panel-item-bg pb-3 text-left shadow-xs shadow-shadow-shadow-3',
+        isClickable && 'cursor-pointer',
+      )}
+    >
+      {isClickable && (
+        <button
+          type="button"
+          className="absolute inset-0 z-10 cursor-pointer appearance-none rounded-xl border-0 bg-transparent p-0 outline-hidden focus-visible:inset-ring-2 focus-visible:inset-ring-state-accent-solid"
+          aria-labelledby={nameId}
+          aria-describedby={app.description ? descriptionId : undefined}
+          onClick={handleCardClick}
+        />
+      )}
+      <div className="flex shrink-0 items-center gap-3 px-4 pt-4 pb-2">
         <div className="relative shrink-0">
           <AppIcon
             size="large"
@@ -35,39 +75,54 @@ const AppCard = ({
             imageUrl={appBasicInfo.icon_url}
           />
           <AppTypeIcon
-            wrapperClassName="absolute -bottom-0.5 -right-0.5 w-4 h-4 shadow-sm"
-            className="h-3 w-3"
+            wrapperClassName="absolute -right-0.5 -bottom-0.5 size-4 rounded-sm border-components-panel-on-panel-item-bg shadow-sm"
+            className="size-3"
             type={appBasicInfo.mode}
           />
         </div>
-        <div className="w-0 grow py-[1px]">
-          <div className="flex items-center text-sm font-semibold leading-5 text-text-secondary">
-            <div className="truncate" title={appBasicInfo.name}>{appBasicInfo.name}</div>
+        <div className="flex w-0 grow flex-col gap-1 py-px">
+          <div className="flex items-center system-md-semibold text-text-secondary">
+            <div id={nameId} className="truncate" title={appBasicInfo.name}>
+              {appBasicInfo.name}
+            </div>
           </div>
-          <div className="flex items-center text-[10px] font-medium leading-[18px] text-text-tertiary">
-            {appBasicInfo.mode === AppModeEnum.ADVANCED_CHAT && <div className="truncate">{t('app.types.advanced').toUpperCase()}</div>}
-            {appBasicInfo.mode === AppModeEnum.CHAT && <div className="truncate">{t('app.types.chatbot').toUpperCase()}</div>}
-            {appBasicInfo.mode === AppModeEnum.AGENT_CHAT && <div className="truncate">{t('app.types.agent').toUpperCase()}</div>}
-            {appBasicInfo.mode === AppModeEnum.WORKFLOW && <div className="truncate">{t('app.types.workflow').toUpperCase()}</div>}
-            {appBasicInfo.mode === AppModeEnum.COMPLETION && <div className="truncate">{t('app.types.completion').toUpperCase()}</div>}
+          <div className="flex items-center system-2xs-medium-uppercase text-text-tertiary">
+            {appBasicInfo.mode === AppModeEnum.ADVANCED_CHAT && (
+              <div className="truncate">
+                {t(($) => $['types.advanced'], { ns: 'app' }).toUpperCase()}
+              </div>
+            )}
+            {appBasicInfo.mode === AppModeEnum.CHAT && (
+              <div className="truncate">
+                {t(($) => $['types.chatbot'], { ns: 'app' }).toUpperCase()}
+              </div>
+            )}
+            {appBasicInfo.mode === AppModeEnum.AGENT_CHAT && (
+              <div className="truncate">
+                {t(($) => $['types.agent'], { ns: 'app' }).toUpperCase()}
+              </div>
+            )}
+            {appBasicInfo.mode === AppModeEnum.WORKFLOW && (
+              <div className="truncate">
+                {t(($) => $['types.workflow'], { ns: 'app' }).toUpperCase()}
+              </div>
+            )}
+            {appBasicInfo.mode === AppModeEnum.COMPLETION && (
+              <div className="truncate">
+                {t(($) => $['types.completion'], { ns: 'app' }).toUpperCase()}
+              </div>
+            )}
           </div>
         </div>
       </div>
-      <div className="description-wrapper system-xs-regular h-[90px] px-[14px] text-text-tertiary">
-        <div className="line-clamp-4 group-hover:line-clamp-2">
+      <div className="flex shrink-0 items-start px-4 py-1">
+        <div
+          id={descriptionId}
+          className="line-clamp-2 min-h-8 flex-1 system-xs-regular text-text-tertiary"
+        >
           {app.description}
         </div>
       </div>
-      {isExplore && canCreate && (
-        <div className={cn('absolute bottom-0 left-0 right-0 hidden bg-gradient-to-t from-components-panel-gradient-2 from-[60.27%] to-transparent p-4 pt-8 group-hover:flex')}>
-          <div className={cn('flex h-8 w-full items-center space-x-2')}>
-            <Button variant="primary" className="h-7 grow" onClick={() => onCreate()}>
-              <PlusIcon className="mr-1 h-4 w-4" />
-              <span className="text-xs">{t('explore.appCard.addToWorkspace')}</span>
-            </Button>
-          </div>
-        </div>
-      )}
     </div>
   )
 }

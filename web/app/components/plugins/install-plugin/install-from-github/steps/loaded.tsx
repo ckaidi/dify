@@ -1,11 +1,11 @@
 'use client'
 
 import type { Plugin, PluginDeclaration, UpdateFromGitHubPayload } from '../../../types'
+import { Button } from '@langgenius/dify-ui/button'
 import { RiLoader2Line } from '@remixicon/react'
 import * as React from 'react'
 import { useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
-import Button from '@/app/components/base/button'
 import useCheckInstalled from '@/app/components/plugins/install-plugin/hooks/use-check-installed'
 import { updateFromGitHub } from '@/service/plugins'
 import { useInstallPackageFromGitHub, usePluginTaskList } from '@/service/use-plugins'
@@ -16,7 +16,7 @@ import Version from '../../base/version'
 import { parseGitHubUrl, pluginManifestToCardPluginProps } from '../../utils'
 
 type LoadedProps = {
-  updatePayload: UpdateFromGitHubPayload
+  updatePayload?: UpdateFromGitHubPayload
   uniqueIdentifier: string
   payload: PluginDeclaration | Plugin
   repoUrl: string
@@ -28,7 +28,7 @@ type LoadedProps = {
   onFailed: (message?: string) => void
 }
 
-const i18nPrefix = 'plugin.installModal'
+const i18nPrefix = 'installModal'
 
 const Loaded: React.FC<LoadedProps> = ({
   updatePayload,
@@ -55,17 +55,15 @@ const Loaded: React.FC<LoadedProps> = ({
 
   const [isInstalling, setIsInstalling] = React.useState(false)
   const { mutateAsync: installPackageFromGitHub } = useInstallPackageFromGitHub()
-  const { handleRefetch } = usePluginTaskList(payload.category)
+  const { handleInstallTaskStart } = usePluginTaskList(payload.category)
   const { check } = checkTaskStatus()
 
   useEffect(() => {
-    if (hasInstalled && uniqueIdentifier === installedInfoPayload.uniqueIdentifier)
-      onInstalled()
+    if (hasInstalled && uniqueIdentifier === installedInfoPayload.uniqueIdentifier) onInstalled()
   }, [hasInstalled])
 
   const handleInstall = async () => {
-    if (isInstalling)
-      return
+    if (isInstalling) return
     setIsInstalling(true)
     onStartToInstall?.()
 
@@ -74,39 +72,40 @@ const Loaded: React.FC<LoadedProps> = ({
       let taskId
       let isInstalled
       if (updatePayload) {
-        const { all_installed, task_id } = await updateFromGitHub(
+        const response = await updateFromGitHub(
           `${owner}/${repo}`,
           selectedVersion,
           selectedPackage,
           updatePayload.originalPackageInfo.id,
           uniqueIdentifier,
         )
+        const { all_installed, task_id } = response
+        handleInstallTaskStart(response)
 
         taskId = task_id
         isInstalled = all_installed
-      }
-      else {
+      } else {
         if (hasInstalled) {
-          const {
-            all_installed,
-            task_id,
-          } = await updateFromGitHub(
+          const response = await updateFromGitHub(
             `${owner}/${repo}`,
             selectedVersion,
             selectedPackage,
             installedInfoPayload.uniqueIdentifier,
             uniqueIdentifier,
           )
+          const { all_installed, task_id } = response
+          handleInstallTaskStart(response)
           taskId = task_id
           isInstalled = all_installed
-        }
-        else {
-          const { all_installed, task_id } = await installPackageFromGitHub({
+        } else {
+          const response = await installPackageFromGitHub({
             repoUrl: `${owner}/${repo}`,
             selectedVersion,
             selectedPackage,
             uniqueIdentifier,
           })
+          const { all_installed, task_id } = response
+          handleInstallTaskStart(response)
 
           taskId = task_id
           isInstalled = all_installed
@@ -117,8 +116,6 @@ const Loaded: React.FC<LoadedProps> = ({
         return
       }
 
-      handleRefetch()
-
       const { status, error } = await check({
         taskId,
         pluginUniqueIdentifier: uniqueIdentifier,
@@ -128,15 +125,13 @@ const Loaded: React.FC<LoadedProps> = ({
         return
       }
       onInstalled(true)
-    }
-    catch (e) {
+    } catch (e) {
       if (typeof e === 'string') {
         onFailed(e)
         return
       }
       onFailed()
-    }
-    finally {
+    } finally {
       setIsInstalling(false)
     }
   }
@@ -144,25 +139,27 @@ const Loaded: React.FC<LoadedProps> = ({
   return (
     <>
       <div className="system-md-regular text-text-secondary">
-        <p>{t(`${i18nPrefix}.readyToInstall`)}</p>
+        <p>{t(($) => $[`${i18nPrefix}.readyToInstall`], { ns: 'plugin' })}</p>
       </div>
       <div className="flex flex-wrap content-start items-start gap-1 self-stretch rounded-2xl bg-background-section-burn p-2">
         <Card
           className="w-full"
           payload={pluginManifestToCardPluginProps(payload as PluginDeclaration)}
-          titleLeft={!isLoading && (
-            <Version
-              hasInstalled={hasInstalled}
-              installedVersion={installedVersion}
-              toInstallVersion={toInstallVersion}
-            />
-          )}
+          titleLeft={
+            !isLoading && (
+              <Version
+                hasInstalled={hasInstalled}
+                installedVersion={installedVersion}
+                toInstallVersion={toInstallVersion}
+              />
+            )
+          }
         />
       </div>
       <div className="mt-4 flex items-center justify-end gap-2 self-stretch">
         {!isInstalling && (
           <Button variant="secondary" className="min-w-[72px]" onClick={onBack}>
-            {t('plugin.installModal.back')}
+            {t(($) => $['installModal.back'], { ns: 'plugin' })}
           </Button>
         )}
         <Button
@@ -171,8 +168,12 @@ const Loaded: React.FC<LoadedProps> = ({
           onClick={handleInstall}
           disabled={isInstalling || isLoading}
         >
-          {isInstalling && <RiLoader2Line className="h-4 w-4 animate-spin-slow" />}
-          <span>{t(`${i18nPrefix}.${isInstalling ? 'installing' : 'install'}`)}</span>
+          {isInstalling && <RiLoader2Line className="size-4 animate-spin-slow" />}
+          <span>
+            {t(($) => $[`${i18nPrefix}.${isInstalling ? 'installing' : 'install'}`], {
+              ns: 'plugin',
+            })}
+          </span>
         </Button>
       </div>
     </>

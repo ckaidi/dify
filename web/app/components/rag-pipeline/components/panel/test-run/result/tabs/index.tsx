@@ -9,31 +9,27 @@ type TabsProps = {
   switchTab: (tab: string) => void
 }
 
-const Tabs = ({
-  currentTab,
-  workflowRunningData,
-  switchTab,
-}: TabsProps) => {
+const Tabs = ({ currentTab, workflowRunningData, switchTab }: TabsProps) => {
   const { t } = useTranslation()
   return (
     <div className="flex shrink-0 items-center gap-x-6 border-b-[0.5px] border-divider-subtle px-4">
       <Tab
         isActive={currentTab === 'RESULT'}
-        label={t('runLog.result')}
+        label={t(($) => $.result, { ns: 'runLog' })}
         value="RESULT"
         workflowRunningData={workflowRunningData}
         onClick={switchTab}
       />
       <Tab
         isActive={currentTab === 'DETAIL'}
-        label={t('runLog.detail')}
+        label={t(($) => $.detail, { ns: 'runLog' })}
         value="DETAIL"
         workflowRunningData={workflowRunningData}
         onClick={switchTab}
       />
       <Tab
         isActive={currentTab === 'TRACING'}
-        label={t('runLog.tracing')}
+        label={t(($) => $.tracing, { ns: 'runLog' })}
         value="TRACING"
         workflowRunningData={workflowRunningData}
         onClick={switchTab}

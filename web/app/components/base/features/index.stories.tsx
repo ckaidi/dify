@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from '@storybook/nextjs'
+import type { Meta, StoryObj } from '@storybook/nextjs-vite'
 import type { Features } from './types'
 import { useState } from 'react'
 import { FeaturesProvider } from '.'
@@ -23,7 +23,8 @@ const meta = {
     layout: 'fullscreen',
     docs: {
       description: {
-        component: 'Zustand-backed provider used for feature toggles. Paired with `NewFeaturePanel` for workflow settings.',
+        component:
+          'Zustand-backed provider used for feature toggles. Paired with `NewFeaturePanel` for workflow settings.',
       },
     },
   },
@@ -58,7 +59,7 @@ const FeaturesDemo = () => {
         show={show}
         isChatMode
         disabled={false}
-        onChange={next => setFeatures(prev => ({ ...prev, ...next }))}
+        onChange={(next) => setFeatures((prev) => ({ ...prev, ...next }))}
         onClose={() => setShow(false)}
       />
     </FeaturesProvider>

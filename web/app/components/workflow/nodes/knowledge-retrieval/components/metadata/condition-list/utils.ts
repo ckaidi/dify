@@ -3,10 +3,6 @@ import {
   MetadataFilteringVariableType,
 } from '@/app/components/workflow/nodes/knowledge-retrieval/types'
 
-export const isEmptyRelatedOperator = (operator: ComparisonOperator) => {
-  return [ComparisonOperator.empty, ComparisonOperator.notEmpty, ComparisonOperator.isNull, ComparisonOperator.isNotNull, ComparisonOperator.exists, ComparisonOperator.notExists].includes(operator)
-}
-
 const notTranslateKey = [
   ComparisonOperator.equal,
   ComparisonOperator.notEqual,
@@ -14,12 +10,22 @@ const notTranslateKey = [
   ComparisonOperator.largerThanOrEqual,
   ComparisonOperator.lessThan,
   ComparisonOperator.lessThanOrEqual,
-]
+] as const
 
-export const isComparisonOperatorNeedTranslate = (operator?: ComparisonOperator) => {
-  if (!operator)
-    return false
-  return !notTranslateKey.includes(operator)
+type NotTranslateOperator = (typeof notTranslateKey)[number]
+type TranslatableComparisonOperator = Exclude<ComparisonOperator, NotTranslateOperator>
+
+export function isComparisonOperatorNeedTranslate(
+  operator: ComparisonOperator,
+): operator is TranslatableComparisonOperator
+export function isComparisonOperatorNeedTranslate(
+  operator?: ComparisonOperator,
+): operator is TranslatableComparisonOperator
+export function isComparisonOperatorNeedTranslate(
+  operator?: ComparisonOperator,
+): operator is TranslatableComparisonOperator {
+  if (!operator) return false
+  return !(notTranslateKey as readonly ComparisonOperator[]).includes(operator)
 }
 
 export const getOperators = (type?: MetadataFilteringVariableType) => {
@@ -61,10 +67,16 @@ export const getOperators = (type?: MetadataFilteringVariableType) => {
 }
 
 export const comparisonOperatorNotRequireValue = (operator?: ComparisonOperator) => {
-  if (!operator)
-    return false
+  if (!operator) return false
 
-  return [ComparisonOperator.empty, ComparisonOperator.notEmpty, ComparisonOperator.isNull, ComparisonOperator.isNotNull, ComparisonOperator.exists, ComparisonOperator.notExists].includes(operator)
+  return [
+    ComparisonOperator.empty,
+    ComparisonOperator.notEmpty,
+    ComparisonOperator.isNull,
+    ComparisonOperator.isNotNull,
+    ComparisonOperator.exists,
+    ComparisonOperator.notExists,
+  ].includes(operator)
 }
 
 export const VARIABLE_REGEX = /\{\{(#[\w-]{1,50}(\.[a-z_]\w{0,29}){1,10}#)\}\}/gi

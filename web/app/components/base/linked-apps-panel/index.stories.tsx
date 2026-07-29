@@ -1,4 +1,4 @@
-import type { Meta, StoryObj } from '@storybook/nextjs'
+import type { Meta, StoryObj } from '@storybook/nextjs-vite'
 import type { RelatedApp } from '@/models/datasets'
 import { AppModeEnum } from '@/types/app'
 import LinkedAppsPanel from '.'
@@ -40,7 +40,8 @@ const meta = {
     layout: 'centered',
     docs: {
       description: {
-        component: 'Shows a curated list of related applications, pairing each app icon with quick navigation links.',
+        component:
+          'Shows a curated list of related applications, pairing each app icon with quick navigation links.',
       },
     },
   },

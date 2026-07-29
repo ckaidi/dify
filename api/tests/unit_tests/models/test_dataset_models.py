@@ -12,19 +12,39 @@ This test suite covers:
 import json
 import pickle
 from datetime import UTC, datetime
-from unittest.mock import MagicMock, patch
+from types import SimpleNamespace
+from unittest.mock import Mock, call, patch
+from urllib.parse import parse_qs, urlparse
 from uuid import uuid4
 
+import pytest
+
+from core.rag.entities import ParentMode
+from core.rag.index_processor.constant.index_type import IndexStructureType, IndexTechniqueType
+from extensions.storage.storage_type import StorageType
+from models.account import Account
 from models.dataset import (
     AppDatasetJoin,
     ChildChunk,
     Dataset,
     DatasetKeywordTable,
     DatasetProcessRule,
+    DatasetQuery,
     Document,
     DocumentSegment,
     Embedding,
+    ExternalKnowledgeApis,
+    ExternalKnowledgeBindings,
 )
+from models.enums import (
+    CreatorUserRole,
+    DataSourceType,
+    DocumentCreatedFrom,
+    IndexingStatus,
+    ProcessRuleMode,
+    SegmentStatus,
+)
+from models.model import UploadFile
 
 
 class TestDatasetModelValidation:
@@ -40,14 +60,14 @@ class TestDatasetModelValidation:
         dataset = Dataset(
             tenant_id=tenant_id,
             name="Test Dataset",
-            data_source_type="upload_file",
+            data_source_type=DataSourceType.UPLOAD_FILE,
             created_by=created_by,
         )
 
         # Assert
         assert dataset.name == "Test Dataset"
         assert dataset.tenant_id == tenant_id
-        assert dataset.data_source_type == "upload_file"
+        assert dataset.data_source_type == DataSourceType.UPLOAD_FILE
         assert dataset.created_by == created_by
         # Note: Default values are set by database, not by model instantiation
 
@@ -57,19 +77,92 @@ class TestDatasetModelValidation:
         dataset = Dataset(
             tenant_id=str(uuid4()),
             name="Test Dataset",
-            data_source_type="upload_file",
+            data_source_type=DataSourceType.UPLOAD_FILE,
             created_by=str(uuid4()),
             description="Test description",
-            indexing_technique="high_quality",
+            indexing_technique=IndexTechniqueType.HIGH_QUALITY,
             embedding_model="text-embedding-ada-002",
             embedding_model_provider="openai",
         )
 
         # Assert
         assert dataset.description == "Test description"
-        assert dataset.indexing_technique == "high_quality"
+        assert dataset.indexing_technique == IndexTechniqueType.HIGH_QUALITY
         assert dataset.embedding_model == "text-embedding-ada-002"
         assert dataset.embedding_model_provider == "openai"
+
+    def test_session_aware_dataset_getters_use_caller_session(self):
+        dataset = Dataset(
+            tenant_id=str(uuid4()),
+            name="Test Dataset",
+            data_source_type=DataSourceType.UPLOAD_FILE,
+            created_by=str(uuid4()),
+        )
+        dataset.id = str(uuid4())
+        account = Mock()
+        process_rule = Mock()
+        session = Mock()
+        session.get.return_value = account
+        session.scalar.side_effect = [process_rule, IndexStructureType.PARAGRAPH_INDEX]
+
+        assert dataset.get_created_by_account(session=session) is account
+        assert dataset.get_latest_process_rule(session=session) is process_rule
+        assert dataset.get_doc_form(session=session) == IndexStructureType.PARAGRAPH_INDEX
+
+        session.get.assert_called_once_with(Account, dataset.created_by)
+        assert session.scalar.call_count == 2
+
+    def test_get_dataset_keyword_table_uses_caller_session(self):
+        dataset = Dataset(
+            tenant_id=str(uuid4()),
+            name="Test Dataset",
+            data_source_type=DataSourceType.UPLOAD_FILE,
+            created_by=str(uuid4()),
+        )
+        dataset.id = str(uuid4())
+        keyword_table = Mock()
+        session = Mock()
+        session.scalar.return_value = keyword_table
+
+        result = dataset.get_dataset_keyword_table(session=session)
+
+        assert result is keyword_table
+        session.scalar.assert_called_once()
+
+    def test_dataset_detail_getters_use_caller_session(self):
+        dataset = Dataset(
+            tenant_id=str(uuid4()),
+            name="Test Dataset",
+            data_source_type=DataSourceType.UPLOAD_FILE,
+            created_by=str(uuid4()),
+            provider="vendor",
+            built_in_field_enabled=False,
+        )
+        dataset.id = str(uuid4())
+        account = Mock(name="account", name_value="Ada")
+        account.name = "Ada"
+        session = Mock()
+        session.get.return_value = account
+        session.scalar.side_effect = [2, 1, 3, 2, 500, IndexStructureType.PARAGRAPH_INDEX]
+        session.scalars.return_value.all.return_value = []
+
+        with patch("models.dataset.db") as mock_db:
+            assert dataset.get_total_documents(session=session) == 2
+            assert dataset.get_total_available_documents(session=session) == 1
+            assert dataset.get_app_count(session=session) == 3
+            assert dataset.get_document_count(session=session) == 2
+            assert dataset.get_word_count(session=session) == 500
+            assert dataset.get_author_name(session=session) == "Ada"
+            assert dataset.get_tags(session=session) == []
+            assert dataset.get_doc_form(session=session) == IndexStructureType.PARAGRAPH_INDEX
+            assert dataset.get_external_knowledge_info(session=session) is None
+            assert dataset.get_doc_metadata(session=session) == []
+            assert dataset.get_is_published(session=session) is False
+
+        assert session.scalar.call_count == 6
+        assert session.scalars.call_count == 2
+        mock_db.session.scalar.assert_not_called()
+        mock_db.session.scalars.assert_not_called()
 
     def test_dataset_indexing_technique_validation(self):
         """Test dataset indexing technique values."""
@@ -77,23 +170,23 @@ class TestDatasetModelValidation:
         dataset_high_quality = Dataset(
             tenant_id=str(uuid4()),
             name="High Quality Dataset",
-            data_source_type="upload_file",
+            data_source_type=DataSourceType.UPLOAD_FILE,
             created_by=str(uuid4()),
-            indexing_technique="high_quality",
+            indexing_technique=IndexTechniqueType.HIGH_QUALITY,
         )
         dataset_economy = Dataset(
             tenant_id=str(uuid4()),
             name="Economy Dataset",
-            data_source_type="upload_file",
+            data_source_type=DataSourceType.UPLOAD_FILE,
             created_by=str(uuid4()),
-            indexing_technique="economy",
+            indexing_technique=IndexTechniqueType.ECONOMY,
         )
 
         # Assert
-        assert dataset_high_quality.indexing_technique == "high_quality"
-        assert dataset_economy.indexing_technique == "economy"
-        assert "high_quality" in Dataset.INDEXING_TECHNIQUE_LIST
-        assert "economy" in Dataset.INDEXING_TECHNIQUE_LIST
+        assert dataset_high_quality.indexing_technique == IndexTechniqueType.HIGH_QUALITY
+        assert dataset_economy.indexing_technique == IndexTechniqueType.ECONOMY
+        assert IndexTechniqueType.HIGH_QUALITY in Dataset.INDEXING_TECHNIQUE_LIST
+        assert IndexTechniqueType.ECONOMY in Dataset.INDEXING_TECHNIQUE_LIST
 
     def test_dataset_provider_validation(self):
         """Test dataset provider values."""
@@ -101,14 +194,14 @@ class TestDatasetModelValidation:
         dataset_vendor = Dataset(
             tenant_id=str(uuid4()),
             name="Vendor Dataset",
-            data_source_type="upload_file",
+            data_source_type=DataSourceType.UPLOAD_FILE,
             created_by=str(uuid4()),
             provider="vendor",
         )
         dataset_external = Dataset(
             tenant_id=str(uuid4()),
             name="External Dataset",
-            data_source_type="upload_file",
+            data_source_type=DataSourceType.UPLOAD_FILE,
             created_by=str(uuid4()),
             provider="external",
         )
@@ -126,7 +219,7 @@ class TestDatasetModelValidation:
         dataset = Dataset(
             tenant_id=str(uuid4()),
             name="Test Dataset",
-            data_source_type="upload_file",
+            data_source_type=DataSourceType.UPLOAD_FILE,
             created_by=str(uuid4()),
             index_struct=json.dumps(index_struct_data),
         )
@@ -145,7 +238,7 @@ class TestDatasetModelValidation:
         dataset = Dataset(
             tenant_id=str(uuid4()),
             name="Test Dataset",
-            data_source_type="upload_file",
+            data_source_type=DataSourceType.UPLOAD_FILE,
             created_by=str(uuid4()),
         )
 
@@ -161,7 +254,7 @@ class TestDatasetModelValidation:
         dataset = Dataset(
             tenant_id=str(uuid4()),
             name="Test Dataset",
-            data_source_type="upload_file",
+            data_source_type=DataSourceType.UPLOAD_FILE,
             created_by=str(uuid4()),
         )
 
@@ -172,13 +265,100 @@ class TestDatasetModelValidation:
         assert result["top_k"] == 2
         assert result["score_threshold"] == 0.0
 
+    def test_dataset_external_knowledge_info_returns_none_for_cross_tenant_template(self):
+        """Test external datasets fail closed when the bound template is outside the tenant."""
+        dataset = Dataset(
+            tenant_id=str(uuid4()),
+            name="External Dataset",
+            data_source_type=DataSourceType.UPLOAD_FILE,
+            created_by=str(uuid4()),
+            provider="external",
+        )
+        binding = Mock(spec=ExternalKnowledgeBindings)
+        binding.external_knowledge_id = "knowledge-1"
+        binding.external_knowledge_api_id = str(uuid4())
+
+        session = Mock()
+        session.scalar.side_effect = [binding, None]
+        with patch("models.dataset.db") as mock_db:
+            assert dataset.get_external_knowledge_info(session=session) is None
+
+        assert session.scalar.call_count == 2
+        mock_db.session.scalar.assert_not_called()
+
+    def test_external_knowledge_api_dataset_bindings_use_caller_session(self):
+        external_api = ExternalKnowledgeApis(
+            tenant_id=str(uuid4()),
+            created_by=str(uuid4()),
+            updated_by=None,
+            name="External API",
+            description="",
+            settings=None,
+        )
+        binding = Mock(dataset_id="dataset-1")
+        dataset = SimpleNamespace(id="dataset-1", name="Dataset")
+        session = Mock()
+        session.scalars.side_effect = [
+            Mock(all=Mock(return_value=[binding])),
+            Mock(all=Mock(return_value=[dataset])),
+        ]
+
+        with patch("models.dataset.db") as mock_db:
+            result = external_api.get_dataset_bindings(session=session)
+
+        assert result == [{"id": "dataset-1", "name": "Dataset"}]
+        assert session.scalars.call_count == 2
+        mock_db.session.scalars.assert_not_called()
+
+    def test_dataset_query_get_queries_uses_caller_session(self):
+        dataset_query = DatasetQuery(
+            dataset_id=str(uuid4()),
+            content=json.dumps([{"content_type": "image_query", "content": "file-1"}]),
+            source="hit_testing",
+            source_app_id=None,
+            created_by_role=CreatorUserRole.ACCOUNT,
+            created_by=str(uuid4()),
+        )
+        upload_file = SimpleNamespace(
+            id="file-1",
+            name="image.png",
+            size=10,
+            extension="png",
+            mime_type="image/png",
+        )
+        session = Mock()
+        session.scalar.return_value = upload_file
+
+        with (
+            patch("models.dataset.db") as mock_db,
+            patch("models.dataset.sign_upload_file_preview_url", return_value="signed-url"),
+        ):
+            queries = dataset_query.get_queries(session=session)
+
+        assert queries == [
+            {
+                "content_type": "image_query",
+                "content": "file-1",
+                "file_info": {
+                    "id": "file-1",
+                    "name": "image.png",
+                    "size": 10,
+                    "extension": "png",
+                    "mime_type": "image/png",
+                    "source_url": "signed-url",
+                },
+            }
+        ]
+        session.scalar.assert_called_once()
+        mock_db.session.scalar.assert_not_called()
+
     def test_dataset_retrieval_model_dict_property(self):
         """Test retrieval_model_dict property with default values."""
         # Arrange
         dataset = Dataset(
             tenant_id=str(uuid4()),
             name="Test Dataset",
-            data_source_type="upload_file",
+            data_source_type=DataSourceType.UPLOAD_FILE,
             created_by=str(uuid4()),
         )
 
@@ -189,6 +369,31 @@ class TestDatasetModelValidation:
         assert result["top_k"] == 2
         assert result["reranking_enable"] is False
         assert result["score_threshold_enabled"] is False
+
+    def test_dataset_retrieval_model_dict_property_merges_partial_values(self):
+        """Test retrieval_model_dict property fills in missing legacy keys."""
+        # Arrange
+        dataset = Dataset(
+            tenant_id=str(uuid4()),
+            name="Test Dataset",
+            data_source_type=DataSourceType.UPLOAD_FILE,
+            created_by=str(uuid4()),
+            retrieval_model={
+                "top_k": 4,
+                "score_threshold_enabled": True,
+                "score_threshold": 0.42,
+            },
+        )
+
+        # Act
+        result = dataset.retrieval_model_dict
+
+        # Assert
+        assert result["search_method"] == "semantic_search"
+        assert result["reranking_enable"] is False
+        assert result["top_k"] == 4
+        assert result["score_threshold_enabled"] is True
+        assert result["score_threshold"] == 0.42
 
     def test_dataset_gen_collection_name_by_id(self):
         """Test static method for generating collection name."""
@@ -218,10 +423,10 @@ class TestDocumentModelRelationships:
             tenant_id=tenant_id,
             dataset_id=dataset_id,
             position=1,
-            data_source_type="upload_file",
+            data_source_type=DataSourceType.UPLOAD_FILE,
             batch="batch_001",
             name="test_document.pdf",
-            created_from="web",
+            created_from=DocumentCreatedFrom.WEB,
             created_by=created_by,
         )
 
@@ -229,10 +434,10 @@ class TestDocumentModelRelationships:
         assert document.tenant_id == tenant_id
         assert document.dataset_id == dataset_id
         assert document.position == 1
-        assert document.data_source_type == "upload_file"
+        assert document.data_source_type == DataSourceType.UPLOAD_FILE
         assert document.batch == "batch_001"
         assert document.name == "test_document.pdf"
-        assert document.created_from == "web"
+        assert document.created_from == DocumentCreatedFrom.WEB
         assert document.created_by == created_by
         # Note: Default values are set by database, not by model instantiation
 
@@ -243,6 +448,30 @@ class TestDocumentModelRelationships:
         assert "notion_import" in Document.DATA_SOURCES
         assert "website_crawl" in Document.DATA_SOURCES
 
+    def test_session_aware_document_getters_use_caller_session(self):
+        document = Document(
+            tenant_id=str(uuid4()),
+            dataset_id=str(uuid4()),
+            position=1,
+            data_source_type=DataSourceType.UPLOAD_FILE,
+            batch="batch_001",
+            name="test.pdf",
+            created_from=DocumentCreatedFrom.WEB,
+            created_by=str(uuid4()),
+            dataset_process_rule_id=str(uuid4()),
+        )
+        process_rule = Mock()
+        session = Mock()
+        session.get.return_value = process_rule
+        session.scalar.side_effect = [3, 7]
+
+        assert document.get_dataset_process_rule(session=session) is process_rule
+        assert document.get_segment_count(session=session) == 3
+        assert document.get_hit_count(session=session) == 7
+
+        session.get.assert_called_once_with(DatasetProcessRule, document.dataset_process_rule_id)
+        assert session.scalar.call_count == 2
+
     def test_document_display_status_queuing(self):
         """Test document display_status property for queuing state."""
         # Arrange
@@ -250,12 +479,12 @@ class TestDocumentModelRelationships:
             tenant_id=str(uuid4()),
             dataset_id=str(uuid4()),
             position=1,
-            data_source_type="upload_file",
+            data_source_type=DataSourceType.UPLOAD_FILE,
             batch="batch_001",
             name="test.pdf",
-            created_from="web",
+            created_from=DocumentCreatedFrom.WEB,
             created_by=str(uuid4()),
-            indexing_status="waiting",
+            indexing_status=IndexingStatus.WAITING,
         )
 
         # Act
@@ -271,12 +500,12 @@ class TestDocumentModelRelationships:
             tenant_id=str(uuid4()),
             dataset_id=str(uuid4()),
             position=1,
-            data_source_type="upload_file",
+            data_source_type=DataSourceType.UPLOAD_FILE,
             batch="batch_001",
             name="test.pdf",
-            created_from="web",
+            created_from=DocumentCreatedFrom.WEB,
             created_by=str(uuid4()),
-            indexing_status="parsing",
+            indexing_status=IndexingStatus.PARSING,
             is_paused=True,
         )
 
@@ -289,15 +518,20 @@ class TestDocumentModelRelationships:
     def test_document_display_status_indexing(self):
         """Test document display_status property for indexing state."""
         # Arrange
-        for indexing_status in ["parsing", "cleaning", "splitting", "indexing"]:
+        for indexing_status in [
+            IndexingStatus.PARSING,
+            IndexingStatus.CLEANING,
+            IndexingStatus.SPLITTING,
+            IndexingStatus.INDEXING,
+        ]:
             document = Document(
                 tenant_id=str(uuid4()),
                 dataset_id=str(uuid4()),
                 position=1,
-                data_source_type="upload_file",
+                data_source_type=DataSourceType.UPLOAD_FILE,
                 batch="batch_001",
                 name="test.pdf",
-                created_from="web",
+                created_from=DocumentCreatedFrom.WEB,
                 created_by=str(uuid4()),
                 indexing_status=indexing_status,
             )
@@ -315,12 +549,12 @@ class TestDocumentModelRelationships:
             tenant_id=str(uuid4()),
             dataset_id=str(uuid4()),
             position=1,
-            data_source_type="upload_file",
+            data_source_type=DataSourceType.UPLOAD_FILE,
             batch="batch_001",
             name="test.pdf",
-            created_from="web",
+            created_from=DocumentCreatedFrom.WEB,
             created_by=str(uuid4()),
-            indexing_status="error",
+            indexing_status=IndexingStatus.ERROR,
         )
 
         # Act
@@ -336,12 +570,12 @@ class TestDocumentModelRelationships:
             tenant_id=str(uuid4()),
             dataset_id=str(uuid4()),
             position=1,
-            data_source_type="upload_file",
+            data_source_type=DataSourceType.UPLOAD_FILE,
             batch="batch_001",
             name="test.pdf",
-            created_from="web",
+            created_from=DocumentCreatedFrom.WEB,
             created_by=str(uuid4()),
-            indexing_status="completed",
+            indexing_status=IndexingStatus.COMPLETED,
             enabled=True,
             archived=False,
         )
@@ -359,12 +593,12 @@ class TestDocumentModelRelationships:
             tenant_id=str(uuid4()),
             dataset_id=str(uuid4()),
             position=1,
-            data_source_type="upload_file",
+            data_source_type=DataSourceType.UPLOAD_FILE,
             batch="batch_001",
             name="test.pdf",
-            created_from="web",
+            created_from=DocumentCreatedFrom.WEB,
             created_by=str(uuid4()),
-            indexing_status="completed",
+            indexing_status=IndexingStatus.COMPLETED,
             enabled=False,
             archived=False,
         )
@@ -382,12 +616,12 @@ class TestDocumentModelRelationships:
             tenant_id=str(uuid4()),
             dataset_id=str(uuid4()),
             position=1,
-            data_source_type="upload_file",
+            data_source_type=DataSourceType.UPLOAD_FILE,
             batch="batch_001",
             name="test.pdf",
-            created_from="web",
+            created_from=DocumentCreatedFrom.WEB,
             created_by=str(uuid4()),
-            indexing_status="completed",
+            indexing_status=IndexingStatus.COMPLETED,
             archived=True,
         )
 
@@ -405,10 +639,10 @@ class TestDocumentModelRelationships:
             tenant_id=str(uuid4()),
             dataset_id=str(uuid4()),
             position=1,
-            data_source_type="upload_file",
+            data_source_type=DataSourceType.UPLOAD_FILE,
             batch="batch_001",
             name="test.pdf",
-            created_from="web",
+            created_from=DocumentCreatedFrom.WEB,
             created_by=str(uuid4()),
             data_source_info=json.dumps(data_source_info),
         )
@@ -428,10 +662,10 @@ class TestDocumentModelRelationships:
             tenant_id=str(uuid4()),
             dataset_id=str(uuid4()),
             position=1,
-            data_source_type="upload_file",
+            data_source_type=DataSourceType.UPLOAD_FILE,
             batch="batch_001",
             name="test.pdf",
-            created_from="web",
+            created_from=DocumentCreatedFrom.WEB,
             created_by=str(uuid4()),
         )
 
@@ -441,6 +675,24 @@ class TestDocumentModelRelationships:
         # Assert
         assert result == {}
 
+    def test_document_get_dataset_uses_caller_session(self):
+        document = Document(
+            tenant_id=str(uuid4()),
+            dataset_id=str(uuid4()),
+            position=1,
+            data_source_type=DataSourceType.UPLOAD_FILE,
+            batch="batch_001",
+            name="test.pdf",
+            created_from=DocumentCreatedFrom.WEB,
+            created_by=str(uuid4()),
+        )
+        dataset = Mock(spec=Dataset)
+        session = Mock()
+        session.get.return_value = dataset
+
+        assert document.get_dataset(session=session) is dataset
+        session.get.assert_called_once_with(Dataset, document.dataset_id)
+
     def test_document_average_segment_length(self):
         """Test average_segment_length property calculation."""
         # Arrange
@@ -448,10 +700,10 @@ class TestDocumentModelRelationships:
             tenant_id=str(uuid4()),
             dataset_id=str(uuid4()),
             position=1,
-            data_source_type="upload_file",
+            data_source_type=DataSourceType.UPLOAD_FILE,
             batch="batch_001",
             name="test.pdf",
-            created_from="web",
+            created_from=DocumentCreatedFrom.WEB,
             created_by=str(uuid4()),
             word_count=1000,
         )
@@ -471,10 +723,10 @@ class TestDocumentModelRelationships:
             tenant_id=str(uuid4()),
             dataset_id=str(uuid4()),
             position=1,
-            data_source_type="upload_file",
+            data_source_type=DataSourceType.UPLOAD_FILE,
             batch="batch_001",
             name="test.pdf",
-            created_from="web",
+            created_from=DocumentCreatedFrom.WEB,
             created_by=str(uuid4()),
             word_count=0,
         )
@@ -488,6 +740,85 @@ class TestDocumentModelRelationships:
 
 class TestDocumentSegmentIndexing:
     """Test suite for DocumentSegment model indexing and operations."""
+
+    def test_get_child_chunks_uses_caller_session(self):
+        segment = DocumentSegment(
+            tenant_id=str(uuid4()),
+            dataset_id=str(uuid4()),
+            document_id=str(uuid4()),
+            position=1,
+            content="Test content",
+            word_count=2,
+            tokens=5,
+            created_by=str(uuid4()),
+        )
+        document = Mock(spec=Document)
+        process_rule = Mock(mode="hierarchical", rules_dict={"parent_mode": "paragraph"})
+        document.get_dataset_process_rule.return_value = process_rule
+        child_chunk = Mock(spec=ChildChunk)
+        session = Mock()
+        session.get.return_value = document
+        session.scalars.return_value.all.return_value = [child_chunk]
+
+        with patch("models.dataset.Rule.model_validate", return_value=Mock(parent_mode="paragraph")):
+            result = segment.get_child_chunks(session=session)
+
+        assert result == [child_chunk]
+        session.get.assert_called_once_with(Document, segment.document_id)
+        document.get_dataset_process_rule.assert_called_once_with(session=session)
+        session.scalars.assert_called_once()
+
+    def test_get_child_chunks_includes_full_doc_unless_explicitly_hidden(self):
+        segment = DocumentSegment(
+            tenant_id=str(uuid4()),
+            dataset_id=str(uuid4()),
+            document_id=str(uuid4()),
+            position=1,
+            content="Test content",
+            word_count=2,
+            tokens=5,
+            created_by=str(uuid4()),
+        )
+        document = Mock(spec=Document)
+        document.get_dataset_process_rule.return_value = Mock(
+            mode="hierarchical",
+            rules_dict={"parent_mode": ParentMode.FULL_DOC},
+        )
+        session = Mock()
+        session.get.return_value = document
+        child_chunk = Mock(spec=ChildChunk)
+        session.scalars.return_value.all.return_value = [child_chunk]
+
+        with patch("models.dataset.Rule.model_validate", return_value=Mock(parent_mode=ParentMode.FULL_DOC)):
+            result = segment.get_child_chunks(session=session)
+            response_result = segment.get_child_chunks(session=session, include_full_doc=False)
+
+        assert result == [child_chunk]
+        assert response_result == []
+        session.scalars.assert_called_once()
+
+    def test_relationship_getters_use_caller_session(self):
+        segment = DocumentSegment(
+            tenant_id=str(uuid4()),
+            dataset_id=str(uuid4()),
+            document_id=str(uuid4()),
+            position=1,
+            content="Test content",
+            word_count=2,
+            tokens=5,
+            created_by=str(uuid4()),
+        )
+        dataset = Mock(spec=Dataset)
+        document = Mock(spec=Document)
+        session = Mock()
+        session.get.side_effect = [dataset, document]
+
+        assert segment.get_dataset(session=session) is dataset
+        assert segment.get_document(session=session) is document
+        assert session.get.call_args_list == [
+            call(Dataset, segment.dataset_id),
+            call(Document, segment.document_id),
+        ]
 
     def test_document_segment_creation_with_required_fields(self):
         """Test creating a document segment with all required fields."""
@@ -582,7 +913,7 @@ class TestDocumentSegmentIndexing:
             word_count=1,
             tokens=2,
             created_by=str(uuid4()),
-            status="waiting",
+            status=SegmentStatus.WAITING,
         )
         segment_completed = DocumentSegment(
             tenant_id=str(uuid4()),
@@ -593,12 +924,12 @@ class TestDocumentSegmentIndexing:
             word_count=1,
             tokens=2,
             created_by=str(uuid4()),
-            status="completed",
+            status=SegmentStatus.COMPLETED,
         )
 
         # Assert
-        assert segment_waiting.status == "waiting"
-        assert segment_completed.status == "completed"
+        assert segment_waiting.status == SegmentStatus.WAITING
+        assert segment_completed.status == SegmentStatus.COMPLETED
 
     def test_document_segment_enabled_disabled_tracking(self):
         """Test document segment enabled/disabled state tracking."""
@@ -643,6 +974,59 @@ class TestDocumentSegmentIndexing:
 
         # Assert
         assert segment.hit_count == 5
+
+    def test_document_segment_attachments_prefers_files_url_for_source_url(self, monkeypatch: pytest.MonkeyPatch):
+        """Test attachment source URLs use FILES_URL before falling back to CONSOLE_API_URL."""
+        # Arrange
+        segment = DocumentSegment(
+            tenant_id="tenant-1",
+            dataset_id="dataset-1",
+            document_id="document-1",
+            position=1,
+            content="Test",
+            word_count=1,
+            tokens=2,
+            created_by="user-1",
+        )
+        segment.id = "segment-1"
+        attachment = UploadFile(
+            tenant_id="tenant-1",
+            storage_type=StorageType.LOCAL,
+            key="upload-1-key",
+            name="image.png",
+            size=128,
+            extension="png",
+            mime_type="image/png",
+            created_by_role=CreatorUserRole.ACCOUNT,
+            created_by="user-1",
+            created_at=datetime(2023, 11, 14, tzinfo=UTC),
+            used=False,
+        )
+        attachment.id = "upload-1"
+
+        monkeypatch.setattr("models.dataset.time.time", lambda: 1700000000)
+        monkeypatch.setattr("models.dataset.os.urandom", lambda _: b"\x01" * 16)
+        monkeypatch.setattr("models.dataset.dify_config.SECRET_KEY", "unit-secret")
+        monkeypatch.setattr("models.dataset.dify_config.FILES_URL", "https://files.example.com")
+        monkeypatch.setattr("models.dataset.dify_config.CONSOLE_API_URL", "https://console.example.com")
+
+        session = Mock()
+        session.execute.return_value.all.return_value = [(Mock(), attachment)]
+
+        # Act
+        attachments = segment.get_attachments(session=session)
+
+        # Assert
+        assert len(attachments) == 1
+        source_url = attachments[0]["source_url"]
+        parsed = urlparse(source_url)
+        query = parse_qs(parsed.query)
+        assert parsed.netloc == "files.example.com"
+        assert parsed.path == "/files/upload-1/image-preview"
+        assert query["timestamp"] == ["1700000000"]
+        assert query["nonce"] == ["01010101010101010101010101010101"]
+        assert query["sign"][0]
+        session.execute.assert_called_once()
 
     def test_document_segment_error_tracking(self):
         """Test document segment error tracking."""
@@ -768,14 +1152,12 @@ class TestDatasetProcessRule:
 
         # Act
         process_rule = DatasetProcessRule(
-            dataset_id=dataset_id,
-            mode="automatic",
-            created_by=created_by,
+            dataset_id=dataset_id, mode=ProcessRuleMode.AUTOMATIC, created_by=created_by, rules=None
         )
 
         # Assert
         assert process_rule.dataset_id == dataset_id
-        assert process_rule.mode == "automatic"
+        assert process_rule.mode == ProcessRuleMode.AUTOMATIC
         assert process_rule.created_by == created_by
 
     def test_dataset_process_rule_modes(self):
@@ -797,7 +1179,7 @@ class TestDatasetProcessRule:
         }
         process_rule = DatasetProcessRule(
             dataset_id=str(uuid4()),
-            mode="custom",
+            mode=ProcessRuleMode.CUSTOM,
             created_by=str(uuid4()),
             rules=json.dumps(rules_data),
         )
@@ -817,7 +1199,7 @@ class TestDatasetProcessRule:
         rules_data = {"test": "data"}
         process_rule = DatasetProcessRule(
             dataset_id=dataset_id,
-            mode="automatic",
+            mode=ProcessRuleMode.AUTOMATIC,
             created_by=str(uuid4()),
             rules=json.dumps(rules_data),
         )
@@ -827,7 +1209,7 @@ class TestDatasetProcessRule:
 
         # Assert
         assert result["dataset_id"] == dataset_id
-        assert result["mode"] == "automatic"
+        assert result["mode"] == ProcessRuleMode.AUTOMATIC
         assert result["rules"] == rules_data
 
     def test_dataset_process_rule_automatic_rules(self):
@@ -871,6 +1253,21 @@ class TestDatasetKeywordTable:
 
         # Assert
         assert keyword_table.data_source_type == "file"
+
+    def test_get_keyword_table_dict_from_database_uses_caller_session(self):
+        dataset = Mock(tenant_id="tenant-1")
+        session = Mock()
+        session.scalar.return_value = dataset
+        keyword_table = DatasetKeywordTable(
+            dataset_id="dataset-1",
+            keyword_table=json.dumps({"__data__": {"table": {"keyword": ["node-1"]}}}),
+            data_source_type="database",
+        )
+
+        result = keyword_table.get_keyword_table_dict(session=session)
+
+        assert result == {"__data__": {"table": {"keyword": {"node-1"}}}}
+        session.scalar.assert_called_once()
 
 
 class TestAppDatasetJoin:
@@ -954,298 +1351,6 @@ class TestChildChunk:
         assert child_chunk.index_node_hash == index_node_hash
 
 
-class TestDatasetDocumentCascadeDeletes:
-    """Test suite for Dataset-Document cascade delete operations."""
-
-    def test_dataset_with_documents_relationship(self):
-        """Test dataset can track its documents."""
-        # Arrange
-        dataset_id = str(uuid4())
-        dataset = Dataset(
-            tenant_id=str(uuid4()),
-            name="Test Dataset",
-            data_source_type="upload_file",
-            created_by=str(uuid4()),
-        )
-        dataset.id = dataset_id
-
-        # Mock the database session query
-        mock_query = MagicMock()
-        mock_query.where.return_value.scalar.return_value = 3
-
-        with patch("models.dataset.db.session.query", return_value=mock_query):
-            # Act
-            total_docs = dataset.total_documents
-
-            # Assert
-            assert total_docs == 3
-
-    def test_dataset_available_documents_count(self):
-        """Test dataset can count available documents."""
-        # Arrange
-        dataset_id = str(uuid4())
-        dataset = Dataset(
-            tenant_id=str(uuid4()),
-            name="Test Dataset",
-            data_source_type="upload_file",
-            created_by=str(uuid4()),
-        )
-        dataset.id = dataset_id
-
-        # Mock the database session query
-        mock_query = MagicMock()
-        mock_query.where.return_value.scalar.return_value = 2
-
-        with patch("models.dataset.db.session.query", return_value=mock_query):
-            # Act
-            available_docs = dataset.total_available_documents
-
-            # Assert
-            assert available_docs == 2
-
-    def test_dataset_word_count_aggregation(self):
-        """Test dataset can aggregate word count from documents."""
-        # Arrange
-        dataset_id = str(uuid4())
-        dataset = Dataset(
-            tenant_id=str(uuid4()),
-            name="Test Dataset",
-            data_source_type="upload_file",
-            created_by=str(uuid4()),
-        )
-        dataset.id = dataset_id
-
-        # Mock the database session query
-        mock_query = MagicMock()
-        mock_query.with_entities.return_value.where.return_value.scalar.return_value = 5000
-
-        with patch("models.dataset.db.session.query", return_value=mock_query):
-            # Act
-            total_words = dataset.word_count
-
-            # Assert
-            assert total_words == 5000
-
-    def test_dataset_available_segment_count(self):
-        """Test dataset can count available segments."""
-        # Arrange
-        dataset_id = str(uuid4())
-        dataset = Dataset(
-            tenant_id=str(uuid4()),
-            name="Test Dataset",
-            data_source_type="upload_file",
-            created_by=str(uuid4()),
-        )
-        dataset.id = dataset_id
-
-        # Mock the database session query
-        mock_query = MagicMock()
-        mock_query.where.return_value.scalar.return_value = 15
-
-        with patch("models.dataset.db.session.query", return_value=mock_query):
-            # Act
-            segment_count = dataset.available_segment_count
-
-            # Assert
-            assert segment_count == 15
-
-    def test_document_segment_count_property(self):
-        """Test document can count its segments."""
-        # Arrange
-        document_id = str(uuid4())
-        document = Document(
-            tenant_id=str(uuid4()),
-            dataset_id=str(uuid4()),
-            position=1,
-            data_source_type="upload_file",
-            batch="batch_001",
-            name="test.pdf",
-            created_from="web",
-            created_by=str(uuid4()),
-        )
-        document.id = document_id
-
-        # Mock the database session query
-        mock_query = MagicMock()
-        mock_query.where.return_value.count.return_value = 10
-
-        with patch("models.dataset.db.session.query", return_value=mock_query):
-            # Act
-            segment_count = document.segment_count
-
-            # Assert
-            assert segment_count == 10
-
-    def test_document_hit_count_aggregation(self):
-        """Test document can aggregate hit count from segments."""
-        # Arrange
-        document_id = str(uuid4())
-        document = Document(
-            tenant_id=str(uuid4()),
-            dataset_id=str(uuid4()),
-            position=1,
-            data_source_type="upload_file",
-            batch="batch_001",
-            name="test.pdf",
-            created_from="web",
-            created_by=str(uuid4()),
-        )
-        document.id = document_id
-
-        # Mock the database session query
-        mock_query = MagicMock()
-        mock_query.with_entities.return_value.where.return_value.scalar.return_value = 25
-
-        with patch("models.dataset.db.session.query", return_value=mock_query):
-            # Act
-            hit_count = document.hit_count
-
-            # Assert
-            assert hit_count == 25
-
-
-class TestDocumentSegmentNavigation:
-    """Test suite for DocumentSegment navigation properties."""
-
-    def test_document_segment_dataset_property(self):
-        """Test segment can access its parent dataset."""
-        # Arrange
-        dataset_id = str(uuid4())
-        segment = DocumentSegment(
-            tenant_id=str(uuid4()),
-            dataset_id=dataset_id,
-            document_id=str(uuid4()),
-            position=1,
-            content="Test",
-            word_count=1,
-            tokens=2,
-            created_by=str(uuid4()),
-        )
-
-        mock_dataset = Dataset(
-            tenant_id=str(uuid4()),
-            name="Test Dataset",
-            data_source_type="upload_file",
-            created_by=str(uuid4()),
-        )
-        mock_dataset.id = dataset_id
-
-        # Mock the database session scalar
-        with patch("models.dataset.db.session.scalar", return_value=mock_dataset):
-            # Act
-            dataset = segment.dataset
-
-            # Assert
-            assert dataset is not None
-            assert dataset.id == dataset_id
-
-    def test_document_segment_document_property(self):
-        """Test segment can access its parent document."""
-        # Arrange
-        document_id = str(uuid4())
-        segment = DocumentSegment(
-            tenant_id=str(uuid4()),
-            dataset_id=str(uuid4()),
-            document_id=document_id,
-            position=1,
-            content="Test",
-            word_count=1,
-            tokens=2,
-            created_by=str(uuid4()),
-        )
-
-        mock_document = Document(
-            tenant_id=str(uuid4()),
-            dataset_id=str(uuid4()),
-            position=1,
-            data_source_type="upload_file",
-            batch="batch_001",
-            name="test.pdf",
-            created_from="web",
-            created_by=str(uuid4()),
-        )
-        mock_document.id = document_id
-
-        # Mock the database session scalar
-        with patch("models.dataset.db.session.scalar", return_value=mock_document):
-            # Act
-            document = segment.document
-
-            # Assert
-            assert document is not None
-            assert document.id == document_id
-
-    def test_document_segment_previous_segment(self):
-        """Test segment can access previous segment."""
-        # Arrange
-        document_id = str(uuid4())
-        segment = DocumentSegment(
-            tenant_id=str(uuid4()),
-            dataset_id=str(uuid4()),
-            document_id=document_id,
-            position=2,
-            content="Test",
-            word_count=1,
-            tokens=2,
-            created_by=str(uuid4()),
-        )
-
-        previous_segment = DocumentSegment(
-            tenant_id=str(uuid4()),
-            dataset_id=str(uuid4()),
-            document_id=document_id,
-            position=1,
-            content="Previous",
-            word_count=1,
-            tokens=2,
-            created_by=str(uuid4()),
-        )
-
-        # Mock the database session scalar
-        with patch("models.dataset.db.session.scalar", return_value=previous_segment):
-            # Act
-            prev_seg = segment.previous_segment
-
-            # Assert
-            assert prev_seg is not None
-            assert prev_seg.position == 1
-
-    def test_document_segment_next_segment(self):
-        """Test segment can access next segment."""
-        # Arrange
-        document_id = str(uuid4())
-        segment = DocumentSegment(
-            tenant_id=str(uuid4()),
-            dataset_id=str(uuid4()),
-            document_id=document_id,
-            position=1,
-            content="Test",
-            word_count=1,
-            tokens=2,
-            created_by=str(uuid4()),
-        )
-
-        next_segment = DocumentSegment(
-            tenant_id=str(uuid4()),
-            dataset_id=str(uuid4()),
-            document_id=document_id,
-            position=2,
-            content="Next",
-            word_count=1,
-            tokens=2,
-            created_by=str(uuid4()),
-        )
-
-        # Mock the database session scalar
-        with patch("models.dataset.db.session.scalar", return_value=next_segment):
-            # Act
-            next_seg = segment.next_segment
-
-            # Assert
-            assert next_seg is not None
-            assert next_seg.position == 2
-
-
 class TestModelIntegration:
     """Test suite for model integration scenarios."""
 
@@ -1261,9 +1366,9 @@ class TestModelIntegration:
         dataset = Dataset(
             tenant_id=tenant_id,
             name="Test Dataset",
-            data_source_type="upload_file",
+            data_source_type=DataSourceType.UPLOAD_FILE,
             created_by=created_by,
-            indexing_technique="high_quality",
+            indexing_technique=IndexTechniqueType.HIGH_QUALITY,
         )
         dataset.id = dataset_id
 
@@ -1272,10 +1377,10 @@ class TestModelIntegration:
             tenant_id=tenant_id,
             dataset_id=dataset_id,
             position=1,
-            data_source_type="upload_file",
+            data_source_type=DataSourceType.UPLOAD_FILE,
             batch="batch_001",
             name="test.pdf",
-            created_from="web",
+            created_from=DocumentCreatedFrom.WEB,
             created_by=created_by,
             word_count=100,
         )
@@ -1291,7 +1396,7 @@ class TestModelIntegration:
             word_count=3,
             tokens=5,
             created_by=created_by,
-            status="completed",
+            status=SegmentStatus.COMPLETED,
         )
 
         # Assert
@@ -1299,9 +1404,9 @@ class TestModelIntegration:
         assert document.dataset_id == dataset_id
         assert segment.dataset_id == dataset_id
         assert segment.document_id == document_id
-        assert dataset.indexing_technique == "high_quality"
+        assert dataset.indexing_technique == IndexTechniqueType.HIGH_QUALITY
         assert document.word_count == 100
-        assert segment.status == "completed"
+        assert segment.status == SegmentStatus.COMPLETED
 
     def test_document_to_dict_serialization(self):
         """Test document to_dict method for serialization."""
@@ -1314,13 +1419,13 @@ class TestModelIntegration:
             tenant_id=tenant_id,
             dataset_id=dataset_id,
             position=1,
-            data_source_type="upload_file",
+            data_source_type=DataSourceType.UPLOAD_FILE,
             batch="batch_001",
             name="test.pdf",
-            created_from="web",
+            created_from=DocumentCreatedFrom.WEB,
             created_by=created_by,
             word_count=100,
-            indexing_status="completed",
+            indexing_status=IndexingStatus.COMPLETED,
         )
 
         # Mock segment_count and hit_count
@@ -1336,6 +1441,6 @@ class TestModelIntegration:
             assert result["dataset_id"] == dataset_id
             assert result["name"] == "test.pdf"
             assert result["word_count"] == 100
-            assert result["indexing_status"] == "completed"
+            assert result["indexing_status"] == IndexingStatus.COMPLETED
             assert result["segment_count"] == 5
             assert result["hit_count"] == 10

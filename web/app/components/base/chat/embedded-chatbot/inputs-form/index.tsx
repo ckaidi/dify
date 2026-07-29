@@ -1,23 +1,21 @@
+import { Button } from '@langgenius/dify-ui/button'
+import { cn } from '@langgenius/dify-ui/cn'
 import * as React from 'react'
 import { useTranslation } from 'react-i18next'
-import Button from '@/app/components/base/button'
 import InputsFormContent from '@/app/components/base/chat/embedded-chatbot/inputs-form/content'
 import Divider from '@/app/components/base/divider'
-import { Message3Fill } from '@/app/components/base/icons/src/public/other'
-import { cn } from '@/utils/classnames'
+import { AppSourceType } from '@/service/share'
 import { useEmbeddedChatbotContext } from '../context'
 
-type Props = {
+type Props = Readonly<{
   collapsed: boolean
   setCollapsed: (collapsed: boolean) => void
-}
+}>
 
-const InputsFormNode = ({
-  collapsed,
-  setCollapsed,
-}: Props) => {
+const InputsFormNode = ({ collapsed, setCollapsed }: Props) => {
   const { t } = useTranslation()
   const {
+    appSourceType,
     isMobile,
     currentConversationId,
     themeBuilder,
@@ -25,30 +23,56 @@ const InputsFormNode = ({
     allInputsHidden,
     inputsForms,
   } = useEmbeddedChatbotContext()
+  const isTryApp = appSourceType === AppSourceType.tryApp
 
-  if (allInputsHidden || inputsForms.length === 0)
-    return null
+  if (allInputsHidden || inputsForms.length === 0) return null
 
   return (
-    <div className={cn('mb-6 flex flex-col items-center px-4 pt-6', isMobile && 'mb-4 pt-4')}>
-      <div className={cn(
-        'w-full max-w-[672px] rounded-2xl border-[0.5px] border-components-panel-border bg-components-panel-bg shadow-md',
-        collapsed && 'border border-components-card-border bg-components-card-bg shadow-none',
+    <div
+      data-testid="inputs-form-node"
+      className={cn(
+        'mb-6 flex flex-col items-center px-4 pt-6',
+        isMobile && 'mb-4 pt-4',
+        isTryApp && 'mb-0 px-0',
       )}
-      >
-        <div className={cn(
-          'flex items-center gap-3 rounded-t-2xl px-6 py-4',
-          !collapsed && 'border-b border-divider-subtle',
-          isMobile && 'px-4 py-3',
+    >
+      <div
+        className={cn(
+          'w-full max-w-[672px] rounded-2xl border-[0.5px] border-components-panel-border bg-components-panel-bg shadow-md',
+          collapsed && 'border border-components-card-border bg-components-card-bg shadow-none',
+          isTryApp && 'max-w-[auto]',
         )}
+      >
+        <div
+          className={cn(
+            'flex items-center gap-3 rounded-t-2xl px-6 py-4',
+            !collapsed && 'border-b border-divider-subtle',
+            isMobile && 'px-4 py-3',
+          )}
         >
-          <Message3Fill className="h-6 w-6 shrink-0" />
-          <div className="system-xl-semibold grow text-text-secondary">{t('share.chat.chatSettingsTitle')}</div>
+          <div className="i-custom-public-other-message-3-fill size-6 shrink-0" />
+          <div className="grow system-xl-semibold text-text-secondary">
+            {t(($) => $['chat.chatSettingsTitle'], { ns: 'share' })}
+          </div>
           {collapsed && (
-            <Button className="uppercase text-text-tertiary" size="small" variant="ghost" onClick={() => setCollapsed(false)}>{t('common.operation.edit')}</Button>
+            <Button
+              className="text-text-tertiary uppercase"
+              size="small"
+              variant="ghost"
+              onClick={() => setCollapsed(false)}
+            >
+              {t(($) => $['operation.edit'], { ns: 'common' })}
+            </Button>
           )}
           {!collapsed && currentConversationId && (
-            <Button className="uppercase text-text-tertiary" size="small" variant="ghost" onClick={() => setCollapsed(true)}>{t('common.operation.close')}</Button>
+            <Button
+              className="text-text-tertiary uppercase"
+              size="small"
+              variant="ghost"
+              onClick={() => setCollapsed(true)}
+            >
+              {t(($) => $['operation.close'], { ns: 'common' })}
+            </Button>
           )}
         </div>
         {!collapsed && (
@@ -70,7 +94,7 @@ const InputsFormNode = ({
                   : {}
               }
             >
-              {t('share.chat.startChat')}
+              {t(($) => $['chat.startChat'], { ns: 'share' })}
             </Button>
           </div>
         )}

@@ -1,62 +1,25 @@
-# Agent Skill Index
+# API Agent Guide
 
-Start with the section that best matches your need. Each entry lists the problems it solves plus key files/concepts so you know what to expect before opening it.
+Read surrounding module, class, and function docstrings plus non-obvious comments before changing backend behavior. They are local contracts; update them only when their owned behavior changes, and keep them aligned with the current code.
 
-______________________________________________________________________
+## Commands
 
-## Platform Foundations
+Run backend checks from the repository root:
 
-- **[Infrastructure Overview](agent_skills/infra.md)**\
-  When to read this:
+- Format and lint: `make lint`
+- Type check: `make type-check`
+- Unit tests: `make test`
+- Targeted tests: `make test TARGET_TESTS=./api/tests/<path>`
 
-  - You need to understand where a feature belongs in the architecture.
-  - You’re wiring storage, Redis, vector stores, or OTEL.
-  - You’re about to add CLI commands or async jobs.\
-    What it covers: configuration stack (`configs/app_config.py`, remote settings), storage entry points (`extensions/ext_storage.py`, `core/file/file_manager.py`), Redis conventions (`extensions/ext_redis.py`), plugin runtime topology, vector-store factory (`core/rag/datasource/vdb/*`), observability hooks, SSRF proxy usage, and core CLI commands.
+Run direct Python commands through `uv run --project api`. Docker-backed integration suites are normally CI-owned. Do not start long-running services as part of routine agent work.
 
-- **[Coding Style](agent_skills/coding_style.md)**\
-  When to read this:
+## Architecture And Boundaries
 
-  - You’re writing or reviewing backend code and need the authoritative checklist.
-  - You’re unsure about Pydantic validators, SQLAlchemy session usage, or logging patterns.
-  - You want the exact lint/type/test commands used in PRs.\
-    Includes: Ruff & BasedPyright commands, no-annotation policy, session examples (`with Session(db.engine, ...)`), `@field_validator` usage, logging expectations, and the rule set for file size, helpers, and package management.
-
-______________________________________________________________________
-
-## Plugin & Extension Development
-
-- **[Plugin Systems](agent_skills/plugin.md)**\
-  When to read this:
-
-  - You’re building or debugging a marketplace plugin.
-  - You need to know how manifests, providers, daemons, and migrations fit together.\
-    What it covers: plugin manifests (`core/plugin/entities/plugin.py`), installation/upgrade flows (`services/plugin/plugin_service.py`, CLI commands), runtime adapters (`core/plugin/impl/*` for tool/model/datasource/trigger/endpoint/agent), daemon coordination (`core/plugin/entities/plugin_daemon.py`), and how provider registries surface capabilities to the rest of the platform.
-
-- **[Plugin OAuth](agent_skills/plugin_oauth.md)**\
-  When to read this:
-
-  - You must integrate OAuth for a plugin or datasource.
-  - You’re handling credential encryption or refresh flows.\
-    Topics: credential storage, encryption helpers (`core/helper/provider_encryption.py`), OAuth client bootstrap (`services/plugin/oauth_service.py`, `services/plugin/plugin_parameter_service.py`), and how console/API layers expose the flows.
-
-______________________________________________________________________
-
-## Workflow Entry & Execution
-
-- **[Trigger Concepts](agent_skills/trigger.md)**\
-  When to read this:
-  - You’re debugging why a workflow didn’t start.
-  - You’re adding a new trigger type or hook.
-  - You need to trace async execution, draft debugging, or webhook/schedule pipelines.\
-    Details: Start-node taxonomy, webhook & schedule internals (`core/workflow/nodes/trigger_*`, `services/trigger/*`), async orchestration (`services/async_workflow_service.py`, Celery queues), debug event bus, and storage/logging interactions.
-
-______________________________________________________________________
-
-## Additional Notes for Agents
-
-- All skill docs assume you follow the coding style guide—run Ruff/BasedPyright/tests listed there before submitting changes.
-- When you cannot find an answer in these briefs, search the codebase using the paths referenced (e.g., `core/plugin/impl/tool.py`, `services/dataset_service.py`).
-- If you run into cross-cutting concerns (tenancy, configuration, storage), check the infrastructure guide first; it links to most supporting modules.
-- Keep multi-tenancy and configuration central: everything flows through `configs.dify_config` and `tenant_id`.
-- When touching plugins or triggers, consult both the system overview and the specialised doc to ensure you adjust lifecycle, storage, and observability consistently.
+- Keep transport parsing and serialization in controllers, orchestration in services, and domain policy in `core/` or its domain owner. Keep `libs/` business-agnostic and reuse existing owners before adding abstractions.
+- Before changing controller schemas, generated API contracts, or `SystemFeatureModel`, read `controllers/API_SCHEMA_GUIDE.md`. Treat `/system-features` as a minimal unauthenticated bootstrap allowlist, not a general configuration registry.
+- Scope tenant-owned reads and writes by the complete owner chain, and propagate `tenant_id` across every affected layer. Reconstruct trusted internal references from validated database state after payload or async boundaries.
+- Keep write transactions explicit and bounded. Do not perform external I/O inside an open transaction unless a documented consistency contract requires it.
+- Read configuration through `configs.dify_config`, access storage through `extensions.ext_storage.storage`, and route outbound HTTP through the existing SSRF-safe owner in `core.helper.ssrf_proxy`.
+- Use Pydantic v2 for request and response models. Reuse domain-specific exceptions and translate them at the controller boundary.
+- Use existing Celery task and queue owners for asynchronous work; do not route unrelated jobs through workflow-specific services.
+- Celery tasks that may be retried or redelivered must keep side effects idempotent and log affected resource identifiers.
